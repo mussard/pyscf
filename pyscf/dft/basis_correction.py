@@ -350,9 +350,6 @@ class basis_correction(lib.StreamObject):
         printv0('  %-37s  %20s'%('> dm imported from',self.dm))
         import_dm(self)
 
-      ###export the dm
-      export_dm(self)
-
       ###DM_REST?
       global dmrest
       if(len(self.dm)==len(self.dm[0])):
@@ -362,6 +359,10 @@ class basis_correction(lib.StreamObject):
         del tmp
       else:
         dmrest=False
+
+      ###export the dm
+      export_dm(self)
+
       dev_check_mos_dm(self)
       end=time.time()
       self.times[1]+=end-start
