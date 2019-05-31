@@ -498,14 +498,16 @@ class basis_correction(lib.StreamObject):
       '''
       Compute or import `mu_of_r`
       '''
+      header('mu_of_r')
+
       ###path to mu_of_r
       if(self.mu==None):
-        header('compute_intermediary')
         printv0('  %-37s'%('> compute intermediary and mu_of_r'))
         self.compute_phi_square()
         self.compute_v_phi_phi()
         self.compute_f_and_n()
         self.compute_mu_of_r()
+        dev_check_f(self)
         export_mu_of_r(self)
       elif(isinstance(self.mu,float)):
         printv0('  %-37s  %20.8f'%('> mu_of_r imposed',self.mu))
@@ -571,19 +573,17 @@ class basis_correction(lib.StreamObject):
       start=time.time()
       self.n=self.phi_square[0]*self.phi_square[1]
       self.f=np.zeros(self.ngrid)
-      for grid_A in range(self.ngrid):
-        for p in range(self.nmo):
-          for i in range(self.nval_beta):
-            self.f[grid_A] += self.v_phi_phi[p,i,grid_A]\
-                             *self.mos_in_r[1][grid_A,p]\
-                             *self.mos_in_r[1][grid_A,i]
-        progress('compute_f_and_n',grid_A+1,self.ngrid)
-      printv0("")
+      for p in range(self.nmo):
+        for i in range(self.nval_beta):
+          self.f+= self.v_phi_phi[p,i,:]\
+                  *self.mos_in_r[1][:,p]\
+                  *self.mos_in_r[1][:,i]
+        #progress('compute_f_and_n',p+1,self.nmo*self.nval_beta)
+      #printv0("")
       #dev for grid_A in range(self.ngrid):
       #dev  print 'n %6i %13.8f'%(grid_A,self.n[grid_A])
       #dev for grid_A in range(self.ngrid):
       #dev  print 'f %6i %13.8f'%(grid_A,self.f[grid_A])
-      dev_check_f(self)
       end=time.time()
       self.times[8]+=end-start
 
@@ -596,31 +596,36 @@ class basis_correction(lib.StreamObject):
       Eq.(16) W(r1,r2) = f(r1,r2)/n2(r1,r2)
       '''
       start=time.time()
-      self.mu_of_r = np.zeros(self.ngrid)
-      got_in_A = 0
-      got_in_B = 0
-      got_in_C = 0
-      for grid_A in range(self.ngrid):
-          f_value=self.f[grid_A]
-          n_value=self.n[grid_A]
-          if(n_value<thr_strict):
-              got_in_A+=1
-              W_value = 1.e+10
-          elif(f_value<-thr_zero):
-              got_in_B+=1
-              W_value = 1.e+10
-          elif(f_value*n_value<-thr_zero):
-              got_in_C+=1
-              W_value = 1.e+10
-          else:
-              W_value = f_value/n_value
-          self.mu_of_r[grid_A] = W_value*math.sqrt(math.pi)*0.5
-          progress('compute_mu_of_r',grid_A+1,self.ngrid)
-      printv0('')
-      if(got_in_A!=0): printv0('    %-35s  %20i'%('warning: at some grid points, n~0'  ,got_in_A))
-      if(got_in_B!=0): printv0('    %-35s  %20i'%('warning: at some grid points, f<0'  ,got_in_B))
-      if(got_in_C!=0): printv0('    %-35s  %20i'%('warning: at some grid points, f.n<0',got_in_C))
-      del f_value,n_value,W_value,got_in_A,got_in_B,got_in_C
+      self.mu_of_r=math.sqrt(math.pi)*0.5\
+                  *np.ma.filled(
+                     np.divide(np.ma.masked_where(self.f<-thr_zero,self.f),
+                               np.ma.masked_where(self.n<thr_strict,self.n)),1e10)
+      if(False): #now using np, above /\
+        self.mu_of_r = np.zeros(self.ngrid)
+        got_in_A = 0
+        got_in_B = 0
+        got_in_C = 0
+        for grid_A in range(self.ngrid):
+            f_value=self.f[grid_A]
+            n_value=self.n[grid_A]
+            if(n_value<thr_strict):
+                got_in_A+=1
+                W_value = 1.e+10
+            elif(f_value<-thr_zero):
+                got_in_B+=1
+                W_value = 1.e+10
+            elif(f_value*n_value<-thr_zero):
+                got_in_C+=1
+                W_value = 1.e+10
+            else:
+                W_value = f_value/n_value
+            self.mu_of_r[grid_A] = W_value*math.sqrt(math.pi)*0.5
+            progress('compute_mu_of_r',grid_A+1,self.ngrid)
+        printv0('')
+        if(got_in_A!=0): printv0('    %-35s  %20i'%('warning: at some grid points, n~0'  ,got_in_A))
+        if(got_in_B!=0): printv0('    %-35s  %20i'%('warning: at some grid points, f<0'  ,got_in_B))
+        if(got_in_C!=0): printv0('    %-35s  %20i'%('warning: at some grid points, f.n<0',got_in_C))
+        del f_value,n_value,W_value,got_in_A,got_in_B,got_in_C
       end=time.time()
       self.times[9]+=end-start
 
@@ -698,6 +703,7 @@ class basis_correction(lib.StreamObject):
       start=time.time()
       header('energies')
       printv0('  > energies ')
+
       eps=self.compute_eps_PBE_sr(np.array([0.0]*self.ngrid))
       print('    %-35s  %20.8f'%('E(mu = 0.0) =',integrate(self,eps)))
 
