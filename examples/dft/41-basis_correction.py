@@ -38,7 +38,7 @@ print('\n\n')
 
 from pyscf import gto
 mol = gto.Mole()
-mol.verbose  = 0
+mol.verbose  = 1
 mol.atom     = [['He', (0.,0.,0.)],]
 mol.basis    = 'aug-cc-pvtz'
 mol.spin     = 0
@@ -93,7 +93,7 @@ b.kernel()
 Run with verbosity
 '''
 print('\n'+'-'*25+' VERBOSITY '+'-'*25)
-b=bc.basis_correction(ks,verbose=True)
+b=bc.basis_correction(ks,verbose=2)
 b.kernel()
 
 '''

@@ -59,7 +59,6 @@ class basis_correction(lib.StreamObject):
       grid_coords    .the grid points coordinates   [N,3]     (inherited from 'obj')
       grid_weights   .the grid points weights       [N]       (inherited from 'obj')
       mo             .the MO coefficient            [nmo,nmo] (inherited from 'obj')
-      occ            .the occupations vector        [nmo]     (inherited from 'obj')
       v              .the integrals, in MOs         [nmo,nmo,nocc,nocc]
       aos_in_r       .the AOs                       [N,nmo]            (on the grid)
       mos_in_r       .the MOs                       [N,nmo]            (on the grid)
@@ -102,21 +101,8 @@ class basis_correction(lib.StreamObject):
   def __init__(self,obj,
                dm=None,root='',mu=None,
                grid_file=None,grid_level=3,
-               verbose=False,plot=False,
+               verbose=None,plot=False,
                origin=[0,0,0],direction=[0,0,1],normal=[1,0,0]):
-      print('\n\n')
-      print('           ____            _       ____       _')
-      print('          | __ )  __ _ ___(_)___  / ___|  ___| |_')
-      print('          |  _ \ / _` / __| / __| \___ \ / _ \ __|')
-      print('          | |_) | (_| \__ \ \__ \  ___) |  __/ |_')
-      print('       ___|____/ \__,_|___/_|___/ |____/_\___|\__|')
-      print('      / ___|___  _ __ _ __ ___  ___| |_(_) ___  _ __')
-      print('     | |   / _ \| \'__| \'__/ _ \/ __| __| |/ _ \| \'_ \ ')
-      print('     | |__| (_) | |  | | |  __/ (__| |_| | (_) | | | |')
-      print('      \____\___/|_|  |_|  \___|\___|\__|_|\___/|_| |_|')
-      print('                                                      ')
-      print('\n\n')
-
       ###arguments
       self.obj         = obj
       self.dm          = dm
@@ -124,37 +110,51 @@ class basis_correction(lib.StreamObject):
       self.mu          = mu
       self.grid_file   = grid_file
       self.grid_level  = grid_level
-      self.verbose     = verbose
       self.plot        = plot
       self.origin      = origin
       self.direction   = direction
       self.normal      = normal
+      if(hasattr(self.obj,'verbose')):
+        self.verbose=self.obj.verbose
+      if(verbose is not None):
+        self.verbose     = verbose
+
+      if(self.verbose>0):
+        print('\n\n')
+        print('           ____            _       ____       _')
+        print('          | __ )  __ _ ___(_)___  / ___|  ___| |_')
+        print('          |  _ \ / _` / __| / __| \___ \ / _ \ __|')
+        print('          | |_) | (_| \__ \ \__ \  ___) |  __/ |_')
+        print('       ___|____/ \__,_|___/_|___/ |____/_\___|\__|')
+        print('      / ___|___  _ __ _ __ ___  ___| |_(_) ___  _ __')
+        print('     | |   / _ \| \'__| \'__/ _ \/ __| __| |/ _ \| \'_ \ ')
+        print('     | |__| (_) | |  | | |  __/ (__| |_| | (_) | | | |')
+        print('      \____\___/|_|  |_|  \___|\___|\__|_|\___/|_| |_|')
+        print('                                                      ')
+        print('\n\n')
+
       self.sanity()
 
-      ###inherited
+      ###rest?
       self.mo          = self.obj.mo_coeff
-      self.nelec       = sum(self.obj.mol.nelec)
       if(len(self.mo)==len(self.mo[0])):
-        self.nmo         = self.mo.shape[0]
+        self.rest      = True
+        self.nmo       = self.mo.shape[0]
       else:
-        self.nmo         = self.mo[0].shape[0]
+        self.rest      = False
+        self.nmo       = self.mo[0].shape[0]
+      ###open?
       if(len(self.obj.mol.nelec)==2):
+        self.open        = True
+        self.nelec       = sum(self.obj.mol.nelec)
         self.nelec_alpha = self.obj.mol.nelec[0]
         self.nelec_beta  = self.obj.mol.nelec[1]
       else:
+        self.open        = False
+        self.nelec       = sum(self.obj.mol.nelec)
         self.nelec_alpha = self.nelec/2.
         self.nelec_beta  = self.nelec/2.
-      if  (isinstance(self.obj,scf.rohf.ROHF)):
-        self.run='restopen'
-        self.occ=[[1]*self.nelec_alpha+[0]*(self.nmo-self.nelec_alpha),
-                  [1]*self.nelec_beta +[0]*(self.nmo-self.nelec_beta )]
-      elif(isinstance(self.obj,scf.hf.RHF)):
-        self.run='rest'
-        self.occ= self.obj.mo_occ
-      elif(isinstance(self.obj,scf.uhf.UHF)):
-        self.run='unrest'
-        self.occ= self.obj.mo_occ
-      #TODO get core,valence
+      ###TODO get core,valence
       self.nval        = int(self.nelec)
       self.nval_alpha  = int(self.nelec_alpha)
       self.nval_beta   = int(self.nelec_beta)
@@ -205,6 +205,7 @@ class basis_correction(lib.StreamObject):
       ###dm
       if(not(self.dm is None
           or isinstance(self.dm,str)
+          or isinstance(self.dm,tuple)
           or isinstance(self.dm,np.ndarray))):
         print('>>%-37s  %20s'%('> DO NOT RECOGNIZE dm',type(self.dm)))
         self.breakout=True
@@ -247,7 +248,7 @@ class basis_correction(lib.StreamObject):
          or self.grid_level<0 or self.grid_level>10):
         print('>>%-37s  %20s'%('> WRONG FORMAT grid_level',self.grid_level))
         self.breakout=True
-      if(not isinstance(self.verbose,bool)):
+      if(not isinstance(self.verbose,int)):
         print('>>%-37s  %20s'%('> WRONG FORMAT verbose',self.verbose))
         self.breakout=True
       if(not isinstance(self.plot,bool)):
@@ -274,25 +275,33 @@ class basis_correction(lib.StreamObject):
       and print out messages
       '''
       header(self,'initialization')
-      print('  %-37s'%('> initialization'))
-      if(self.run=='rest'):
-        print('    %-35s'%('recognized a RESTRICTED run'))
-      elif(self.run=='unrest'):
-        print('    %-35s'%('recognized a UNRESTRICTED run'))
-      elif(self.run=='restopen'):
-        print('    %-35s'%('recognized a RESTRICTED_OPEN run'))
-      print('    %-35s  %20s'%('basis = ',self.obj.mol.basis))
-      print('    %-35s  %20i'%('nmo = '  ,self.nmo))
-      print('    %-35s  %20i'%('nelec = ',self.nelec))
+      if(self.verbose>0):
+        print('  %-37s'%('> initialization'))
+        print('    %-35s  %20s'%('basis = ',self.obj.mol.basis))
+        print('    %-35s  %20i'%('nmo = '  ,self.nmo))
+        print('    %-35s  %20i'%('nelec = ',self.nelec))
       if(len(self.root)!=0 and self.root[-1]!='_' and self.root[-1]!='/'): self.root+='_'
       if('/' in self.root):
         if not os.path.exists(os.path.dirname(self.root)):
           os.makedirs(os.path.dirname(self.root))
 
       ###gather basic ingredients
-      self.get_integrals()
       self.get_dm()
+      if(self.verbose>0):
+        if(self.rest):
+          print('    %-35s'%('recognized a MO_RESTRICTED run'))
+        else:
+          print('    %-35s'%('recognized a MO_UNRESTRICTED run'))
+        if(self.open):
+          print('    %-35s'%('recognized an OPEN run'))
+        else:
+          print('    %-35s'%('recognized a CLOSED run'))
+        if(self.dm_rest):
+          print('    %-35s'%('recognized a DM_RESTRICTED run'))
+        else:
+          print('    %-35s'%('recognized a DM_UNRESTRICTED run'))
       dev_check_mos(self)
+      self.get_integrals()
       self.get_grid()
       self.get_mos_in_r()
       self.get_rhos()
@@ -302,14 +311,14 @@ class basis_correction(lib.StreamObject):
       '''
       Get the two-electron integrals involved,
       in MO and in physics notation.
-      Only `v[all,all,occ,occ]` needed.
+      Only `v[all,all,nocc,nocc]` needed.
 
       Uses: ao2mo.outcore.general_iofree
       '''
       start=time.time()
       header(self,'get_integrals')
       # REST and RESTOPEN case
-      if(self.run=='rest' or self.run=='restopen'):
+      if(self.rest):
         self.v = ao2mo.outcore.general_iofree(self.obj.mol,
                 (self.mo, self.mo[:,:self.nelec_alpha],
                  self.mo, self.mo[:,:self.nelec_alpha]), compact=False)
@@ -317,7 +326,7 @@ class basis_correction(lib.StreamObject):
         self.v=self.v.transpose(0,2,1,3)
 
       # UNREST case
-      elif(self.run=='unrest'):
+      else:
         self.v = ao2mo.outcore.general_iofree(self.obj.mol,
                 (self.mo[0], self.mo[0][:,:self.nval_alpha],
                  self.mo[1], self.mo[1][:,:self.nval_alpha]), compact=False)
@@ -338,14 +347,19 @@ class basis_correction(lib.StreamObject):
 
       ###produce the dm
       if(self.dm is None):
-        if(hasattr(self.obj,'make_rdm1')):
-          print('  %-37s'%('> dm produced from obj'))
-          self.dm=self.obj.make_rdm1()
+        if(self.verbose>0): print('  %-37s'%('> dm produced from obj'))
+        self.dm=self.obj.make_rdm1()
 
       ###import the dm
       elif(isinstance(self.dm,str)):
-        print('  %-37s  %20s'%('> dm imported from',self.dm))
+        if(self.verbose>0): print('  %-37s  %20s'%('> dm imported from',self.dm))
         import_dm(self)
+
+      ###dm_rest?
+      if(len(self.dm)==len(self.dm[0])):
+        self.dm_rest=True
+      else:
+        self.dm_rest=False
 
       ###export the dm
       export_dm(self)
@@ -364,7 +378,7 @@ class basis_correction(lib.StreamObject):
 
       ###produce the grid
       if(self.grid_file==None):
-        print('  %-37s'%('> grid produced from obj'))
+        if(self.verbose>0): print('  %-37s'%('> grid produced from obj'))
         if(hasattr(self.obj,'grids')):
           self.obj.grids.level=self.grid_level
           self.obj.grids.build()
@@ -382,12 +396,12 @@ class basis_correction(lib.StreamObject):
 
       ###import the grid
       elif(isinstance(self.grid_file,str)):
-        print('  %-37s  %20s'%('> grid imported from',self.grid_file))
+        if(self.verbose>0): print('  %-37s  %20s'%('> grid imported from',self.grid_file))
         import_grid(self)
 
       ###export the grid
       export_grid(self)
-      print('    %-35s  %20i'%('ngrid =',self.ngrid))
+      if(self.verbose>0): print('    %-35s  %20i'%('ngrid =',self.ngrid))
       end=time.time()
       self.times[2]+=end-start
 
@@ -401,13 +415,13 @@ class basis_correction(lib.StreamObject):
       start=time.time()
       header(self,'get_mos_in_r')
       self.aos_in_r = dft.numint.eval_ao(self.obj.mol,self.grid_coords)
-      print('  %-37s'%('> convert aos to mos'))
+      if(self.verbose>0): print('  %-37s'%('> convert aos to mos'))
       # REST and RESTOPEN case
-      if(self.run=='rest' or self.run=='restopen'):
+      if(self.rest):
         self.mos_in_r = np.dot(self.aos_in_r,self.mo)
 
       # UNREST case
-      elif(self.run=='unrest'):
+      else:
         self.mos_in_r = [0,0]
         self.mos_in_r[0] = np.dot(self.aos_in_r,self.mo[0])
         self.mos_in_r[1] = np.dot(self.aos_in_r,self.mo[1])
@@ -425,13 +439,13 @@ class basis_correction(lib.StreamObject):
       start=time.time()
       header(self,'get_rhos')
       # REST case
-      if(self.run=='rest'):
+      if(self.dm_rest):
         self.rho       = dft.numint.eval_rho(self.obj.mol, self.aos_in_r, self.dm)
         self.rho_alpha = self.rho/2.
         self.rho_beta  = self.rho/2.
 
       # UNREST and RESTOPEN case
-      elif(self.run=='unrest' or self.run=='restopen'):
+      else:
         self.rho_alpha = dft.numint.eval_rho(self.obj.mol, self.aos_in_r, self.dm[0])
         self.rho_beta  = dft.numint.eval_rho(self.obj.mol, self.aos_in_r, self.dm[1])
         self.rho       = self.rho_alpha+self.rho_beta
@@ -460,29 +474,29 @@ class basis_correction(lib.StreamObject):
       '''
       start=time.time()
       header(self,'get_eps_PBE')
-      print('  %-37s'%'> native PBE functional')
+      if(self.verbose>0): print('  %-37s'%'> native PBE functional')
       aos = dft.numint.eval_ao(self.obj.mol,self.grid_coords,deriv=1)
       # REST case
-      if(self.run=='rest'):
+      if(self.dm_rest):
         rho = dft.numint.eval_rho(self.obj.mol, aos, self.dm,xctype='GGA')
         self.eps_PBE, = dft.libxc.eval_xc('PBE,PBE',rho)[:1]
         self.eps_PBE=self.eps_PBE*self.rho
-        compute_energy(self,'Exc',self.eps_PBE)
+        if(self.verbose>0):print('    %-35s  %20.8f'%('Exc =',integrate(self,self.eps_PBE)))
         self.eps_PBE, = dft.libxc.eval_xc('0*HF,PBE',rho)[:1]
         self.eps_PBE=self.eps_PBE*self.rho
-        compute_energy(self,'Ecorr',self.eps_PBE)
+        if(self.verbose>0):print('    %-35s  %20.8f'%('Ecorr =',integrate(self,self.eps_PBE)))
         del aos,rho
 
       # UNREST and RESTOPEN case
-      elif(self.run=='unrest' or self.run=='restopen'):
+      else:
         rho_alpha = dft.numint.eval_rho(self.obj.mol, aos, self.dm[0],xctype='GGA')
         rho_beta  = dft.numint.eval_rho(self.obj.mol, aos, self.dm[1],xctype='GGA')
         self.eps_PBE, = dft.libxc.eval_xc('PBE,PBE',(rho_alpha,rho_beta),1)[:1]
         self.eps_PBE=self.eps_PBE*self.rho
-        compute_energy(self,'Exc',self.eps_PBE)
+        if(self.verbose>0):print('    %-35s  %20.8f'%('Exc =',integrate(self,self.eps_PBE)))
         self.eps_PBE, = dft.libxc.eval_xc('0*HF,PBE',(rho_alpha,rho_beta),1)[:1]
         self.eps_PBE=self.eps_PBE*self.rho
-        compute_energy(self,'Ecorr',self.eps_PBE)
+        if(self.verbose>0):print('    %-35s  %20.8f'%('Ecorr =',integrate(self,self.eps_PBE)))
         del aos,rho_alpha,rho_beta
       end=time.time()
       self.times[5]+=end-start
@@ -494,7 +508,7 @@ class basis_correction(lib.StreamObject):
       ###path to mu_of_r
       if(self.mu==None):
         header(self,'compute_intermediary')
-        print('  %-37s'%('> compute intermediary and mu_of_r'))
+        if(self.verbose>0): print('  %-37s'%('> compute intermediary and mu_of_r'))
         self.compute_phi_square()
         self.compute_v_phi_phi()
         self.compute_f_and_n()
@@ -502,10 +516,10 @@ class basis_correction(lib.StreamObject):
         dev_check_f(self)
         export_mu_of_r(self)
       elif(isinstance(self.mu,float)):
-        print('  %-37s  %20.8f'%('> mu_of_r imposed',self.mu))
+        if(self.verbose>0): print('  %-37s  %20.8f'%('> mu_of_r imposed',self.mu))
         self.mu_of_r = np.array([self.mu for grid_A in range(self.ngrid)])
       elif(isinstance(self.mu,str)):
-        print('  %-25s  %32s'%('> mu_of_r imported from',self.mu))
+        if(self.verbose>0): print('  %-25s  %32s'%('> mu_of_r imported from',self.mu))
         import_mu_of_r(self)
 
       ###average mu_of_r
@@ -521,7 +535,7 @@ class basis_correction(lib.StreamObject):
       '''
       start=time.time()
       # REST case
-      if(self.run=='rest'):
+      if(self.rest and not self.open):
         self.phi_square=np.zeros(self.ngrid)
         for i in range(self.nval_alpha):
             self.phi_square+=self.mos_in_r[:,i]\
@@ -530,7 +544,7 @@ class basis_correction(lib.StreamObject):
         #dev   print 'phi_square %6i %13.8f'%(grid_A,self.phi_square[grid_A])
 
       # RESTOPEN case
-      elif(self.run=='restopen'):
+      elif(self.rest and self.open):
         self.phi_square=[np.zeros(self.ngrid),np.zeros(self.ngrid)]
         for i in range(self.nval_alpha):
             self.phi_square[0]+=self.mos_in_r[:,i]*self.mos_in_r[:,i]
@@ -540,7 +554,7 @@ class basis_correction(lib.StreamObject):
         #dev   print 'phi_square %6i %13.8f'%(grid_A,self.phi_square[0][grid_A])
 
       # UNREST case
-      elif(self.run=='unrest'):
+      else:
         self.phi_square=[np.zeros(self.ngrid),np.zeros(self.ngrid)]
         for i in range(self.nval_alpha):
             self.phi_square[0]+=self.mos_in_r[0][:,i]*self.mos_in_r[0][:,i]
@@ -558,7 +572,7 @@ class basis_correction(lib.StreamObject):
       '''
       start=time.time()
       # REST and RESTOPEN case
-      if(self.run=='rest' or self.run=='restopen'):
+      if(self.rest):
         self.v_phi_phi=np.zeros((self.nmo,self.nval_beta,self.ngrid))
         for p in range(self.nmo):
          for i in range(self.nval_beta):
@@ -567,10 +581,10 @@ class basis_correction(lib.StreamObject):
                 self.v_phi_phi[p,i,:]+=self.v[p,q,i,j]\
                                       *self.mos_in_r[:,q]\
                                       *self.mos_in_r[:,j]
-          progress('compute_v_phi_phi',p*self.nval_beta+i+1,self.nval_beta*self.nmo)
+          progress(self,'compute_v_phi_phi',p*self.nval_beta+i+1,self.nval_beta*self.nmo)
 
       # UNREST case
-      elif(self.run=='unrest'):
+      else:
         self.v_phi_phi=np.zeros((self.nmo,self.nval_beta,self.ngrid))
         for p in range(self.nmo):
          for i in range(self.nval_beta):
@@ -579,8 +593,8 @@ class basis_correction(lib.StreamObject):
                 self.v_phi_phi[p,i,:]+=self.v[p,q,i,j]\
                                       *self.mos_in_r[0][:,q]\
                                       *self.mos_in_r[0][:,j]
-          progress('compute_v_phi_phi',p*self.nval_beta+i+1,self.nval_beta*self.nmo)
-      print("")
+          progress(self,'compute_v_phi_phi',p*self.nval_beta+i+1,self.nval_beta*self.nmo)
+      if(self.verbose>0): print("")
       #dev for p in range(self.nmo):
       #dev  for i in range(self.nval_beta):
       #dev   for grid_A in range(self.ngrid):
@@ -599,7 +613,7 @@ class basis_correction(lib.StreamObject):
       '''
       start=time.time()
       # REST case
-      if(self.run=='rest'):
+      if(self.rest and not self.open):
         self.n=self.phi_square*self.phi_square
         self.f=np.zeros(self.ngrid)
         for grid_A in range(self.ngrid):
@@ -608,10 +622,10 @@ class basis_correction(lib.StreamObject):
               self.f[grid_A] += self.v_phi_phi[p,i,grid_A]\
                                *self.mos_in_r[grid_A,p]\
                                *self.mos_in_r[grid_A,i]
-          progress('compute_f_and_n',grid_A+1,self.ngrid)
+          progress(self,'compute_f_and_n',grid_A+1,self.ngrid)
 
       # RESTOPEN case
-      elif(self.run=='restopen'):
+      elif(self.rest and self.open):
         self.n=self.phi_square[0]*self.phi_square[1]
         self.f=np.zeros(self.ngrid)
         for grid_A in range(self.ngrid):
@@ -620,10 +634,10 @@ class basis_correction(lib.StreamObject):
               self.f[grid_A] += self.v_phi_phi[p,i,grid_A]\
                                *self.mos_in_r[grid_A,p]\
                                *self.mos_in_r[grid_A,i]
-          progress('compute_f_and_n',grid_A+1,self.ngrid)
+          progress(self,'compute_f_and_n',grid_A+1,self.ngrid)
 
       # UNREST case
-      elif(self.run=='unrest'):
+      else:
         self.n=self.phi_square[0]*self.phi_square[1]
         self.f=np.zeros(self.ngrid)
         for grid_A in range(self.ngrid):
@@ -632,8 +646,8 @@ class basis_correction(lib.StreamObject):
               self.f[grid_A] += self.v_phi_phi[p,i,grid_A]\
                                *self.mos_in_r[1][grid_A,p]\
                                *self.mos_in_r[1][grid_A,i]
-          progress('compute_f_and_n',grid_A+1,self.ngrid)
-      print("")
+          progress(self,'compute_f_and_n',grid_A+1,self.ngrid)
+      if(self.verbose>0): print("")
       #dev for grid_A in range(self.ngrid):
       #dev  print 'n %6i %13.8f'%(grid_A,self.n[grid_A])
       #dev for grid_A in range(self.ngrid):
@@ -669,11 +683,11 @@ class basis_correction(lib.StreamObject):
           else:
               W_value = f_value/n_value
           self.mu_of_r[grid_A] = W_value*math.sqrt(math.pi)*0.5
-          progress('compute_mu_of_r',grid_A+1,self.ngrid)
-      print('')
-      if(got_in_A!=0): print('    %-35s  %20i'%('warning: at some grid points, n~0'  ,got_in_A))
-      if(got_in_B!=0): print('    %-35s  %20i'%('warning: at some grid points, f<0'  ,got_in_B))
-      if(got_in_C!=0): print('    %-35s  %20i'%('warning: at some grid points, f.n<0',got_in_C))
+          progress(self,'compute_mu_of_r',grid_A+1,self.ngrid)
+      if(self.verbose>0): print('')
+      if(got_in_A!=0 and self.verbose>0): print('    %-35s  %20i'%('warning: at some grid points, n~0'  ,got_in_A))
+      if(got_in_B!=0 and self.verbose>0): print('    %-35s  %20i'%('warning: at some grid points, f<0'  ,got_in_B))
+      if(got_in_C!=0 and self.verbose>0): print('    %-35s  %20i'%('warning: at some grid points, f.n<0',got_in_C))
       del f_value,n_value,W_value,got_in_A,got_in_B,got_in_C
       end=time.time()
       self.times[9]+=end-start
@@ -687,7 +701,7 @@ class basis_correction(lib.StreamObject):
       den=self.grid_weights*self.rho
       mu,den=mask_over(self.thr_large,[self.mu_of_r,den])
       self.mu_average = np.ma.dot(den,mu,strict=True)/self.nelec
-      print('    %-35s  %20.8f '%('average_mu',self.mu_average))
+      if(self.verbose>0): print('    %-35s  %20.8f '%('average_mu',self.mu_average))
       end=time.time()
       self.times[10]+=end-start
       del den,mu
@@ -751,18 +765,19 @@ class basis_correction(lib.StreamObject):
       '''
       start=time.time()
       header(self,'energies')
-      print('  > energies ')
+      if(self.verbose>0): print('  > energies ')
       eps=self.compute_eps_PBE_sr(np.array([0.0]*self.ngrid))
-      e=compute_energy(self,'E(mu = 0.0)',eps)
+      print('    %-35s  %20.8f'%('E(mu = 0.0) =',integrate(self,eps)))
 
       eps=self.compute_eps_PBE_sr(np.array([0.5]*self.ngrid))
-      e=compute_energy(self,'E(mu = 0.5)',eps)
+      print('    %-35s  %20.8f'%('E(mu = 0.5) =',integrate(self,eps)))
 
       eps=self.compute_eps_PBE_sr(np.array([self.mu_average]*self.ngrid))
-      e=compute_energy(self,'E(mu = avg)',eps)
+      print('    %-35s  %20.8f'%('E(mu = avg) =',integrate(self,eps)))
 
       self.eps_PBE_sr=self.compute_eps_PBE_sr(self.mu_of_r)
-      e=compute_energy(self,'E_basis-set',self.eps_PBE_sr)
+      e=integrate(self,self.eps_PBE_sr)
+      print('    %-35s  %20.8f'%('E_basis-set =',e))
       end=time.time()
       self.times[12]+=end-start
       del eps
@@ -775,7 +790,7 @@ class basis_correction(lib.StreamObject):
       '''
       start=time.time()
       if(self.plot):
-        print('  %-37s'%('> plots'))
+        if(self.verbose>0): print('  %-37s'%('> plots'))
         draw_mol_and_grid(self)
         plot_histo_grid(self)
         plot_line_plane(self,self.mu_of_r   ,'mu_of_r')
@@ -818,44 +833,46 @@ def header(self,string):
     '''
     Formatting
     '''
-    if(self.verbose):
+    if(self.verbose>1):
       print('\n-'+string)
 
 def log(self,message,number):
     '''
     Print log lines if `self.verbose`
     '''
-    if(self.verbose):
+    if(self.verbose>1):
       if(abs(number)>self.thr_zero):
           print('..  %-35s  %20.8f  ****'%(message,number))
       else:
           print('..  %-35s  %20.8f'%(message,number))
 
-def progress(message,value,endvalue):
+def progress(self,message,value,endvalue):
     '''
     Print a dynamic progress bar, for example:
     '          1044/3740   [-------->                      ]  28%'
     '''
-    bar_length = 17
-    percent = float(value)/endvalue
-    arrow   = '-'*int(round(percent * bar_length)-1)+'>'
-    spaces  = ' '*(bar_length - len(arrow))
-    line='\r        %-20s%6i/%-6i [%s] %3i'\
-         %(message,value,endvalue,arrow+spaces,int(round(percent * 100)))
-    sys.stdout.write(line+'%')
-    sys.stdout.flush()
-    del bar_length,percent,arrow,spaces,line
+    if(self.verbose>0):
+      bar_length = 17
+      percent = float(value)/endvalue
+      arrow   = '-'*int(round(percent * bar_length)-1)+'>'
+      spaces  = ' '*(bar_length - len(arrow))
+      line='\r        %-20s%6i/%-6i [%s] %3i'\
+           %(message,value,endvalue,arrow+spaces,int(round(percent * 100)))
+      sys.stdout.write(line+'%')
+      sys.stdout.flush()
+      del bar_length,percent,arrow,spaces,line
 
 def timings(self):
     '''
     Print out the timings
     for all major routines
     '''
-    header(self,'timings')
-    print('  %-37s'%('> timings'))
-    for i in range(len(self.times)):
-      print('    %-35s  %16.2f sec'%(self.labels[i],self.times[i]))
-    print('')
+    if(self.verbose>0):
+      header(self,'timings')
+      print('  %-37s'%('> timings'))
+      for i in range(len(self.times)):
+        print('    %-35s  %16.2f sec'%(self.labels[i],self.times[i]))
+      print('')
 
 def integrate(self,array):
     '''
@@ -864,26 +881,17 @@ def integrate(self,array):
     '''
     return np.dot(array,self.grid_weights)
 
-def compute_energy(self,label,array):
-    '''
-    Compute E = \int array(r) dr
-    AND print out a message for the energy
-    '''
-    e = integrate(self,array)
-    print('    %-35s  %20.8f'%(label+' =',e))
-    return e
-
 def to_mo(self,i):
     '''
     Translate an electron index
     into an MO index
     '''
     # REST and RESTOPEN case
-    if(self.run=='rest' or self.run=='restopen'):
+    if(self.rest):
       return int(i/2.)
 
     # UNREST case
-    elif(self.run=='unrest'):
+    else:
       print('Should not call `to_mo` from UNREST')
       exit(0)
 
@@ -951,30 +959,32 @@ def import_dm(self):
     '''
     Import a density matrix from `self.dm` file,
     with format 'i j dm(i,j)'
+             or 'a/b i j dm[a/b](i,j)'
     '''
     file = open(self.dm,'r')
     f = file.read().split('\n')
     file.close()
-    self.dm = np.zeros((self.nmo,self.nmo))
+    tmp = np.zeros((self.nmo,self.nmo))
+    tmpa = None
     for line in f:
       data=line.split()
       if len(data)==0:
           continue
-      # REST case
-      if(self.run=='rest'):
-        if len(data)!=3:
-            print('>>>Expecting "i j dm(i,j)"')
-            print(line,data)
-            exit(0)
-        self.dm[int(data[0]),int(data[1])]=float(data[2])
-
-      # UNREST and RESTOPEN case
-      elif(self.run=='unrest' or self.run=='restopen'):
-        if len(data)!=4:
-            print('>>>Expecting "a/b i j dm[a/b](i,j)"')
-            print(line,data)
-            exit(0)
-        self.dm[int(data[0])][int(data[1]),int(data[2])]=float(data[3])
+      if len(data)==3:
+        tmp[int(data[0]),int(data[1])]=float(data[2])
+      elif len(data)==4:
+        current=int(data[0])
+        if(current==1 and tmpa is None): tmpa=tmp
+        tmp[int(data[1]),int(data[2])]=float(data[3])
+      else:
+        print('>>>Expecting "i j dm(i,j)"')
+        print('>>>       or "a/b i j dm[a/b](i,j)"')
+        print(line,data)
+        exit(0)
+    if(tmpa is None):
+      self.dm=tmp
+    else:
+      self.dm=[tmpa,tmp]
     del file,f,data
 
 def import_grid(self):
@@ -1040,23 +1050,23 @@ def export_dm(self):
     '''
     filename=self.root+'dm.data'
     if(os.path.isfile(filename)):
-      print('    %-25s  %30s'%('no export, file exists',filename))
+        if(self.verbose>0): print('    %-25s  %30s'%('no export, file exists',filename))
     else:
       f=open(filename,'w')
       # REST case
-      if(self.run=='rest'):
+      if(self.dm_rest):
         for i in range(self.nmo):
           for j in range(self.nmo):
             f.write('%5i %5i %15.8f\n'%(i,j,self.dm[i,j]))
 
       # UNREST and RESTOPEN case
-      elif(self.run=='unrest' or self.run=='restopen'):
+      else:
         for ab in range(2):
           for i in range(self.nmo):
             for j in range(self.nmo):
               f.write('%1i %5i %5i %15.8f\n'%(ab,i,j,self.dm[ab][i,j]))
       f.close()
-      print('    %-35s  %20s'%('export dm',filename))
+      if(self.verbose>0): print('    %-35s  %20s'%('export dm',filename))
       del f
     del filename
 
@@ -1066,7 +1076,7 @@ def export_grid(self):
     '''
     filename=self.root+'grid.data'
     if(os.path.isfile(filename)):
-      print('    %-25s  %30s'%('no export, file exists',filename))
+        if(self.verbose>0): print('    %-25s  %30s'%('no export, file exists',filename))
     else:
       f=open(filename,'w')
       for grid_A in range(self.ngrid):
@@ -1076,7 +1086,7 @@ def export_grid(self):
                 self.grid_coords[grid_A,2],
                 self.grid_weights[grid_A]))
       f.close()
-      print('    %-35s  %20s'%('export grid',filename))
+      if(self.verbose>0): print('    %-35s  %20s'%('export grid',filename))
       del f
     del filename
     return
@@ -1087,7 +1097,7 @@ def export_mu_of_r(self):
     '''
     filename=self.root+'mu_of_r.data'
     if(os.path.isfile(filename)):
-      print('    %-25s  %30s'%('no export, file exists',filename))
+        if(self.verbose>0): print('    %-25s  %30s'%('no export, file exists',filename))
     else:
       f=open(filename,'w')
       for grid_A in range(self.ngrid):
@@ -1098,7 +1108,7 @@ def export_mu_of_r(self):
                 self.grid_weights[grid_A],
                 self.mu_of_r[grid_A]))
       f.close()
-      print('    %-35s  %20s'%('export mu_of_r',filename))
+      if(self.verbose>0): print('    %-35s  %20s'%('export mu_of_r',filename))
       del f
     del filename
 
@@ -1147,7 +1157,7 @@ def plot_histo_grid(self):
     plt.hist(d)
     plt.savefig(filename)
     plt.close()
-    print('    %-22s  %33s'%('histogram of the grid',filename))
+    if(self.verbose>0): print('    %-22s  %33s'%('histogram of the grid',filename))
     ###get `max`
     mu,d=mask_over(10,[self.mu_of_r,d])
     self.max=np.ma.max(d.compressed())
@@ -1179,7 +1189,7 @@ def plot_line_plane(self,f,name,type='over'):
     plt.scatter(x,z)
     plt.savefig(filename1)
     plt.close()
-    print('    %-10s  %45s'%('on a line',filename1))
+    if(self.verbose>0): print('    %-10s  %45s'%('on a line',filename1))
 
     ###z=f(x,y)
     x,y,pts_plane=select_plane(self,self.normal,self.origin)
@@ -1201,7 +1211,7 @@ def plot_line_plane(self,f,name,type='over'):
     plt.clabel(contours, inline=True, fontsize=8)
     plt.savefig(filename2)
     plt.close()
-    print('    %-10s  %45s'%('contour2d',filename2))
+    if(self.verbose>0): print('    %-10s  %45s'%('contour2d',filename2))
     ###plot
     filename3=self.root+name+'_3d.png'
     plt.clf()
@@ -1211,7 +1221,7 @@ def plot_line_plane(self,f,name,type='over'):
     ax.scatter(x,y,z, marker='.', s=10, c="gray", alpha=0.5)
     plt.savefig(filename3)
     plt.close()
-    print('    %-10s  %45s'%('contour3d',filename3))
+    if(self.verbose>0): print('    %-10s  %45s'%('contour3d',filename3))
     del x,y,z,tri,filename1,filename2,filename3,\
         contours,fig,ax,pts_line,pts_plane
 
@@ -1239,7 +1249,7 @@ def plot_of_r(self,f,name,dim=2,x=None,y=None,z=None):
     fig.colorbar(img)
     plt.savefig(filename)
     plt.close()
-    print('    %-25s  %30s'%(name,filename))
+    if(self.verbose>0): print('    %-25s  %30s'%(name,filename))
     del ax,f0,f1,img,filename,fig
 
 def qualifies(vec,direction,thresh):
@@ -1335,7 +1345,7 @@ def select_line(self,direction,origin):
       ax.scatter(x,y,z, c='Gray',alpha=0.5,s=25)
       plt.savefig(self.root+'pts_of_line.png')
       plt.close()
-      print('    %-15s  %40s'%('selected line',self.root+'pts_of_line.png'))
+      if(self.verbose>0): print('    %-15s  %40s'%('selected line',self.root+'pts_of_line.png'))
       del dim,fig,ax,new_xyz,newx,newy,newz,x,y,z
     del vec,matrix
     return new_coords[pts_line,2],pts_line
@@ -1408,7 +1418,7 @@ def select_plane(self,normal,origin):
       ax.scatter(x,y,z, c='Gray',alpha=0.5,s=25)
       plt.savefig(self.root+'pts_of_plane.png')
       plt.close()
-      print('    %-15s  %40s'%('selected plane',self.root+'pts_of_line.png'))
+      if(self.verbose>0): print('    %-15s  %40s'%('selected plane',self.root+'pts_of_line.png'))
       del dim,fig,ax,new_xyz,newx,newy,newz,x,y,z
     del d,abc,matrix
 
@@ -1491,7 +1501,7 @@ def draw_mol_and_grid(self):
     ax.scatter(atomx,atomy,atomz, s=s,alpha=1.,c='Blue')
     plt.savefig(self.root+'molecule_and_grid.png')
     plt.close()
-    print('    %-10s  %45s'%('molecule',self.root+'molecule_and_grid.png'))
+    if(self.verbose>0): print('    %-10s  %45s'%('molecule',self.root+'molecule_and_grid.png'))
     ###info to help choose what to give as `direction` and `normal`
     if(False):
       for i in range(len(elt)):
@@ -1508,78 +1518,88 @@ def draw_mol_and_grid(self):
 #    SOME CHECKS FOR FUNCTIONS    #
 #  -----------------------------  #
 def dev_check_mos(self):
-    '''
-    Check that DM=mo.occ.mo
-    and tr(DM.S)=nelec
-    and tr(CT.S.C)=1mat
-    '''
+  '''
+  Check that DM=mo.occ.mo
+  and tr(DM.S)=nelec
+  and tr(CT.S.C)=1mat
+  '''
+  if(self.verbose>1):
     # REST case
-    if(self.run=='rest'):
-      a=np.einsum('mi,i,ni->mn',self.mo,self.occ,self.mo)
-      log(self,'norm(dm-dm)',np.linalg.norm(self.dm-a))
+    if(self.rest and not self.open):
+      if(hasattr(self.obj,'mo_occ')):
+        a=np.einsum('mi,i,ni->mn',self.mo,self.obj.mo_occ,self.mo)
+        log(self,'norm(dm-dm) (onlySR)',np.linalg.norm(self.dm-a))
 
-      a=np.einsum('ij,ij',self.dm,self.obj.get_ovlp()) - self.nelec
-      log(self,'tr(DM.S)-nelec',a)
+      if(hasattr(self.obj,'get_ovlp')):
+        a=np.einsum('ij,ij',self.dm,self.obj.get_ovlp()) - self.nelec
+        log(self,'tr(DM.S)-nelec',a)
 
-      a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo.T,self.obj.get_ovlp(),self.mo)
-      log(self,'norm(C.T.S.C-1mat)',np.linalg.norm(a))
+        a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo.T,self.obj.get_ovlp(),self.mo)
+        log(self,'norm(C.T.S.C-1mat)',np.linalg.norm(a))
       del a
 
     # RESTOPEN case
-    elif(self.run=='restopen'):
-      a=np.einsum('mi,i,ni->mn',self.mo,self.occ[0],self.mo)
-      log(self,'norm(dm-dm) (alpha)',np.linalg.norm(self.dm[0]-a))
-      a=np.einsum('mi,i,ni->mn',self.mo,self.occ[1],self.mo)
-      log(self,'norm(dm-dm) (beta)',np.linalg.norm(self.dm[1]-a))
+    elif(self.rest and self.open and not self.dm_rest):
+      occ=[[1]*self.nelec_alpha+[0]*(self.nmo-self.nelec_alpha),
+           [1]*self.nelec_beta +[0]*(self.nmo-self.nelec_beta )]
+      a=np.einsum('mi,i,ni->mn',self.mo,occ[0],self.mo)
+      log(self,'norm(dm-dm) (alpha) (onlySR)',np.linalg.norm(self.dm[0]-a))
+      a=np.einsum('mi,i,ni->mn',self.mo,occ[1],self.mo)
+      log(self,'norm(dm-dm) (beta) (onlySR)',np.linalg.norm(self.dm[1]-a))
 
-      a=np.einsum('ij,ij',self.dm[0],self.obj.get_ovlp()) - self.nelec_alpha
-      log(self,'tr(DM.S)=nelec',a)
-      a=np.einsum('ij,ij',self.dm[1],self.obj.get_ovlp()) - self.nelec_beta
-      log(self,'tr(DM.S)=nelec',a)
+      if(hasattr(self.obj,'get_ovlp')):
+        a=np.einsum('ij,ij',self.dm[0],self.obj.get_ovlp()) - self.nelec_alpha
+        log(self,'tr(DM.S)=nelec',a)
+        a=np.einsum('ij,ij',self.dm[1],self.obj.get_ovlp()) - self.nelec_beta
+        log(self,'tr(DM.S)=nelec',a)
 
-      a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo.T,self.obj.get_ovlp(),self.mo)
-      log(self,'norm(C.T.S.C-1mat)',np.linalg.norm(a))
+        a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo.T,self.obj.get_ovlp(),self.mo)
+        log(self,'norm(C.T.S.C-1mat)',np.linalg.norm(a))
       del a
 
     # UNREST case
-    elif(self.run=='unrest'):
-      a=np.einsum('mi,i,ni->mn',self.mo[0],self.occ[0],self.mo[0])
-      log(self,'norm(dm-dm) (alpha)',np.linalg.norm(self.dm[0]-a))
-      a=np.einsum('mi,i,ni->mn',self.mo[1],self.occ[1],self.mo[1])
-      log(self,'norm(dm-dm) (beta)',np.linalg.norm(self.dm[1]-a))
+    elif(not self.rest):
+      if(hasattr(self.obj,'mo_occ')):
+        a=np.einsum('mi,i,ni->mn',self.mo[0],self.obj.mo_occ[0],self.mo[0])
+        log(self,'norm(dm-dm) (alpha) (onlySR)',np.linalg.norm(self.dm[0]-a))
+        a=np.einsum('mi,i,ni->mn',self.mo[1],self.obj.mo_occ[1],self.mo[1])
+        log(self,'norm(dm-dm) (beta) (onlySR)',np.linalg.norm(self.dm[1]-a))
 
-      a=np.einsum('ij,ij',self.dm[0],self.obj.get_ovlp()) - self.nelec_alpha
-      log(self,'tr(DM.S)=nelec',a)
-      a=np.einsum('ij,ij',self.dm[1],self.obj.get_ovlp()) - self.nelec_beta
-      log(self,'tr(DM.S)=nelec',a)
+      if(hasattr(self.obj,'get_ovlp')):
+        a=np.einsum('ij,ij',self.dm[0],self.obj.get_ovlp()) - self.nelec_alpha
+        log(self,'tr(DM.S)=nelec',a)
+        a=np.einsum('ij,ij',self.dm[1],self.obj.get_ovlp()) - self.nelec_beta
+        log(self,'tr(DM.S)=nelec',a)
 
-      a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo[0].T,self.obj.get_ovlp(),self.mo[0])
-      log(self,'norm(C.T.S.C-1mat)',np.linalg.norm(a))
-      a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo[1].T,self.obj.get_ovlp(),self.mo[1])
-      log(self,'norm(C.T.S.C-1mat)',np.linalg.norm(a))
+        a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo[0].T,self.obj.get_ovlp(),self.mo[0])
+        log(self,'norm(C.T.S.C-1mat)',np.linalg.norm(a))
+        a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo[1].T,self.obj.get_ovlp(),self.mo[1])
+        log(self,'norm(C.T.S.C-1mat)',np.linalg.norm(a))
       del a
 
 def dev_check_orthos(self):
-    '''
-    Check that <AO|AO>=S_AO and <MO|MO>=1
-    via integrations over the grid
-    '''
-    #TODO For some reason the <AO|AO> and
-    #TODO <MO|MO> are not always right..!?!
-    #TODO Everything else works though, so...
-    ref=self.obj.get_ovlp()
-    a=np.zeros((self.nmo,self.nmo))
-    for i in range(self.nmo):
-     for j in range(self.nmo):
-      a[i,j]=integrate(self,self.aos_in_r[:,i]*self.aos_in_r[:,j])
-    log(self,'norm(ovlp-ovlp)=0 (AO)',np.linalg.norm(a-ref))
-    ###print <AO|AO>-ovlp
-    #dev print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
-    #dev for i in range(self.nmo):
-    #dev   print('%8i'%(i+1)+''.join(['%20.8f'%(a[i,j]-ref[i,j]) for j in range(i+1)]))
+  '''
+  Check that <AO|AO>=S_AO and <MO|MO>=1
+  via integrations over the grid
+  '''
+  #TODO For some reason the <AO|AO> and
+  #TODO <MO|MO> are not always right..!?!
+  #TODO Everything else works though, so...
+  if(self.verbose>1):
+    if(hasattr(self.obj,'get_ovlp')):
+      ref=self.obj.get_ovlp()
+      a=np.zeros((self.nmo,self.nmo))
+      for i in range(self.nmo):
+       for j in range(self.nmo):
+        a[i,j]=integrate(self,self.aos_in_r[:,i]*self.aos_in_r[:,j])
+      log(self,'norm(ovlp-ovlp)=0 (AO)',np.linalg.norm(a-ref))
+      ###print <AO|AO>-ovlp
+      #dev print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
+      #dev for i in range(self.nmo):
+      #dev   print('%8i'%(i+1)+''.join(['%20.8f'%(a[i,j]-ref[i,j]) for j in range(i+1)]))
 
     # REST and RESTOPEN case
-    if(self.run=='rest' or self.run=='restopen'):
+    if(self.rest):
       ref=np.diag([1]*self.nmo)
       a=np.zeros((self.nmo,self.nmo))
       for i in range(self.nmo):
@@ -1593,7 +1613,7 @@ def dev_check_orthos(self):
       del a,ref
 
     # UNREST case
-    elif(self.run=='unrest'):
+    else:
       ref=np.diag([1]*self.nmo)
       a=np.zeros((self.nmo,self.nmo))
       for i in range(self.nmo):
@@ -1618,12 +1638,13 @@ def dev_check_orthos(self):
       del a,ref
 
 def dev_check_coulomb(self):
-    '''
-    Check that
-    1/2 sum_elec V_ij^ij = E_coul
-    '''
+  '''
+  Check that
+  1/2 sum_elec V_ij^ij = E_coul
+  '''
+  if(self.verbose>1):
     # REST and RESTOPEN case
-    if(self.run=='rest' or self.run=='restopen'):
+    if(self.rest):
       a=0
       for elec_i in range(self.nval):
         for elec_j in range(self.nval):
@@ -1633,7 +1654,7 @@ def dev_check_coulomb(self):
       del a
 
     # UNREST case
-    elif(self.run=='unrest'):
+    else:
       a=0
       for elec_i in range(self.nval_alpha):
         for elec_j in range(self.nval_alpha):
@@ -1649,110 +1670,115 @@ def dev_check_coulomb(self):
       del a
 
 def dev_check_rho_nelec(self):
-    '''
-    Check that \int rho(r) dr = nelec
-    via integration over the grid
-    '''
+  '''
+  Check that \int rho(r) dr = nelec
+  via integration over the grid
+  '''
+  if(self.verbose>1):
     log(self,'int(rho)-nelec'      ,integrate(self,self.rho)      -self.nelec      )
     log(self,'int(rho)-nelec_alpha',integrate(self,self.rho_alpha)-self.nelec_alpha)
     log(self,'int(rho)-nelec_beta ',integrate(self,self.rho_beta )-self.nelec_beta )
 
 def dev_check_mos_rho(self):
-    '''
-    Check `rho` over the grid
-    in several different ways
-    '''
+  '''
+  Check `rho` over the grid
+  in several different ways
+  '''
+  if(self.verbose>1):
     # REST case
-    if(self.run=='rest'):
+    if(self.rest and not self.open):
       rho=np.einsum('pi,ij,pj->p', self.aos_in_r, self.dm, self.aos_in_r)
       log(self,'norm(rho-rho)=0 (dm)',np.linalg.norm(rho-self.rho))
 
-      rho=np.zeros(self.ngrid)
-      for i in range(self.nmo):
-          rho+=self.occ[i]*self.mos_in_r[:,i]**2
-      log(self,'norm(rho-rho)=0 (occ)',np.linalg.norm(rho-self.rho))
+      if(hasattr(self.obj,'mo_occ')):
+        rho=np.zeros(self.ngrid)
+        for i in range(self.nmo):
+            rho+=self.obj.mo_occ[i]*self.mos_in_r[:,i]**2
+        log(self,'norm(rho-rho)=0 (occ) (onlySR)',np.linalg.norm(rho-self.rho))
 
       rho=np.zeros(self.ngrid)
       for i in range(self.nval):
           rho+=self.mos_in_r[:,to_mo(self,i)]**2
-      log(self,'norm(rho-rho)=0 (to_mo)',np.linalg.norm(rho-self.rho))
+      log(self,'norm(rho-rho)=0 (to_mo) (onlySR)',np.linalg.norm(rho-self.rho))
 
       rho=np.zeros(self.ngrid)
       for i in range(self.nval_alpha):
           rho+=self.mos_in_r[:,i]**2
-      log(self,'norm(rho-rho)=0 (alpha)',np.linalg.norm(rho-self.rho_alpha))
+      log(self,'norm(rho-rho)=0 (alpha) (onlySR)',np.linalg.norm(rho-self.rho_alpha))
 
       rho=np.zeros(self.ngrid)
       for i in range(self.nval_beta):
           rho+=self.mos_in_r[:,i]**2
-      log(self,'norm(rho-rho)=0 (beta)',np.linalg.norm(rho-self.rho_beta))
+      log(self,'norm(rho-rho)=0 (beta) (onlySR)',np.linalg.norm(rho-self.rho_beta))
       del rho
 
     # RESTOPEN case
-    elif(self.run=='restopen'):
+    elif(self.rest and self.open and not self.dm_rest):
       rho=np.einsum('pi,ij,pj->p', self.aos_in_r, self.dm[0], self.aos_in_r)
       log(self,'norm(rho-rho)=0 (dm)',np.linalg.norm(rho-self.rho_alpha))
       rho=np.einsum('pi,ij,pj->p', self.aos_in_r, self.dm[1], self.aos_in_r)
       log(self,'norm(rho-rho)=0 (dm)',np.linalg.norm(rho-self.rho_beta))
 
+      occ=[[1]*self.nelec_alpha+[0]*(self.nmo-self.nelec_alpha),
+           [1]*self.nelec_beta +[0]*(self.nmo-self.nelec_beta )]
       rho=np.zeros(self.ngrid)
       for i in range(self.nmo):
-          rho+=self.occ[0][i]*self.mos_in_r[:,i]**2
-      log(self,'norm(rho-rho)=0 (occ)',np.linalg.norm(rho-self.rho_alpha))
-
+          rho+=occ[0][i]*self.mos_in_r[:,i]**2
+      log(self,'norm(rho-rho)=0 (occ) (onlySR)',np.linalg.norm(rho-self.rho_alpha))
       rho=np.zeros(self.ngrid)
       for i in range(self.nmo):
-          rho+=self.occ[1][i]*self.mos_in_r[:,i]**2
-      log(self,'norm(rho-rho)=0 (occ)',np.linalg.norm(rho-self.rho_beta))
+          rho+=occ[1][i]*self.mos_in_r[:,i]**2
+      log(self,'norm(rho-rho)=0 (occ) (onlySR)',np.linalg.norm(rho-self.rho_beta))
 
       rho=np.zeros(self.ngrid)
       for i in range(self.nval_alpha):
           rho+=self.mos_in_r[:,i]**2
-      log(self,'norm(rho-rho)=0 (alpha)',np.linalg.norm(rho-self.rho_alpha))
-
+      log(self,'norm(rho-rho)=0 (alpha) (onlySR)',np.linalg.norm(rho-self.rho_alpha))
       rho=np.zeros(self.ngrid)
       for i in range(self.nval_beta):
           rho+=self.mos_in_r[:,i]**2
-      log(self,'norm(rho-rho)=0 (beta)',np.linalg.norm(rho-self.rho_beta))
+      log(self,'norm(rho-rho)=0 (beta) (onlySR)',np.linalg.norm(rho-self.rho_beta))
       del rho
 
     # UNREST case
-    elif(self.run=='unrest'):
+    elif(not self.rest):
       rho=np.einsum('pi,ij,pj->p', self.aos_in_r, self.dm[0], self.aos_in_r)
       log(self,'norm(rho-rho)=0 (dm)',np.linalg.norm(rho-self.rho_alpha))
       rho=np.einsum('pi,ij,pj->p', self.aos_in_r, self.dm[1], self.aos_in_r)
       log(self,'norm(rho-rho)=0 (dm)',np.linalg.norm(rho-self.rho_beta))
 
-      rho=np.zeros(self.ngrid)
-      for i in range(self.nmo):
-          rho+=self.occ[0][i]*self.mos_in_r[0][:,i]**2
-      log(self,'norm(rho-rho)=0 (occ)',np.linalg.norm(rho-self.rho_alpha))
+      if(hasattr(self.obj,'mo_occ')):
+        rho=np.zeros(self.ngrid)
+        for i in range(self.nmo):
+            rho+=self.obj.mo_occ[0][i]*self.mos_in_r[0][:,i]**2
+        log(self,'norm(rho-rho)=0 (occ) (onlySR)',np.linalg.norm(rho-self.rho_alpha))
 
-      rho=np.zeros(self.ngrid)
-      for i in range(self.nmo):
-          rho+=self.occ[1][i]*self.mos_in_r[1][:,i]**2
-      log(self,'norm(rho-rho)=0 (occ)',np.linalg.norm(rho-self.rho_beta))
+        rho=np.zeros(self.ngrid)
+        for i in range(self.nmo):
+            rho+=self.obj.mo_occ[1][i]*self.mos_in_r[1][:,i]**2
+        log(self,'norm(rho-rho)=0 (occ) (onlySR)',np.linalg.norm(rho-self.rho_beta))
 
       rho=np.zeros(self.ngrid)
       for i in range(self.nval_alpha):
           rho+=self.mos_in_r[0][:,i]**2
-      log(self,'norm(rho-rho)=0 (alpha)',np.linalg.norm(rho-self.rho_alpha))
+      log(self,'norm(rho-rho)=0 (alpha) (onlySR)',np.linalg.norm(rho-self.rho_alpha))
 
       rho=np.zeros(self.ngrid)
       for i in range(self.nval_beta):
           rho+=self.mos_in_r[1][:,i]**2
-      log(self,'norm(rho-rho)=0 (beta)',np.linalg.norm(rho-self.rho_beta))
+      log(self,'norm(rho-rho)=0 (beta) (onlySR)',np.linalg.norm(rho-self.rho_beta))
       del rho
 
 def dev_check_f(self):
-    '''
-    Check \int f(r1,r2) dr1 dr2
-    with analytical integration over r2
-    and integration over the grid for r1
-    '''
+  '''
+  Check \int f(r1,r2) dr1 dr2
+  with analytical integration over r2
+  and integration over the grid for r1
+  '''
+  if(self.verbose>1):
     header(self,'some checks')
     # REST and RESTOPEN case
-    if(self.run=='rest' or self.run=='restopen'):
+    if(self.rest):
       int_f=np.zeros(self.ngrid)
       for j in range(self.nval):
         for p in range(self.nmo):
@@ -1764,7 +1790,7 @@ def dev_check_f(self):
       del int_f,prod
 
     # UNREST case
-    elif(self.run=='unrest'):
+    else:
       int_f=np.zeros(self.ngrid)
       for j in range(self.nval_alpha):
         for p in range(self.nmo):
