@@ -34,11 +34,11 @@ Other optional arguments are:
   - direction   direction vector for y=f(x) on a line in case of plots
   - normal      normal vector for z=f(x,y) on a plane in case of plots
 '''
-print('\n\n')
 
+print('\n'+'-'*24+' HF and PBE '+'-'*25)
 from pyscf import gto
 mol = gto.Mole()
-mol.verbose  = 1
+mol.verbose  = 0
 mol.atom     = [['He', (0.,0.,0.)],]
 mol.basis    = 'aug-cc-pvtz'
 mol.spin     = 0
@@ -74,7 +74,7 @@ b.kernel()
 '''
 Run with the `grid_file` argument (string)
 '''
-print('\n'+'-'*23+' GRID FROM FILE '+'-'*23)
+print('\n'+'-'*23+' GRID FROM FILE '+'-'*22)
 b=bc.basis_correction(ks,grid_file='grid.data')
 b.kernel()
 
@@ -85,15 +85,19 @@ print('\n'+'-'*21+' CONSTANT MU = 0.5 '+'-'*21)
 b=bc.basis_correction(ks,mu=0.5)
 b.kernel()
 
-print('\n'+'-'*23+' MU FROM FILE '+'-'*23)
+print('\n'+'-'*23+' MU FROM FILE '+'-'*24)
 b=bc.basis_correction(ks,mu='mu_of_r.data')
 b.kernel()
 
 '''
 Run with verbosity
 '''
-print('\n'+'-'*25+' VERBOSITY '+'-'*25)
-b=bc.basis_correction(ks,verbose=2)
+print('\n'+'-'*24+' VERBOSITY_1 '+'-'*24)
+b=bc.basis_correction(ks,mu='mu_of_r.data',verbose=1)
+b.kernel()
+
+print('\n'+'-'*24+' VERBOSITY_2 '+'-'*24)
+b=bc.basis_correction(ks,mu='mu_of_r.data',verbose=2)
 b.kernel()
 
 '''
@@ -115,7 +119,7 @@ b.kernel()
 '''
 Run with N2
 '''
-print('\n'+'-'*23+' N2 WITH PLOTS '+'-'*23)
+print('\n'+'-'*23+' N2 HF and PBE '+'-'*23)
 from pyscf import gto
 mol = gto.Mole()
 mol.verbose  = 0
@@ -137,6 +141,7 @@ ks.xc = 'PBE'
 e=ks.kernel()
 print('::PBE::  E = %13.6f'%e)
 
+print('\n'+'-'*23+' N2 WITH PLOTS '+'-'*23)
 b=bc.basis_correction(ks,plot=True,root='plot_n2/',grid_level=0,
                          origin=[0,0,0],direction=[0,0,1],normal=[1,0,0])
 b.kernel()
