@@ -12,13 +12,14 @@ warnings.filterwarnings('ignore', message=".*The 'normed' kwarg is deprecated.*"
 warnings.filterwarnings('ignore', message=".*Input data contains duplicate x,y points.*")
 
 ###global
-thr_zero   = 1.e-5
-thr_strict = 1.e-12
-thr_large  = 1.e2
-v_level    = None
-dmrest     = None
-morest     = None
-nopen      = None
+thr_zero    = 1.e-5
+thr_strict  = 1.e-12
+thr_large   = 1.e+2
+thr_big_nbr = 1.e+10
+v_level     = None
+dmrest      = None
+morest      = None
+nopen       = None
 
 class basis_correction(lib.StreamObject):
   '''
@@ -124,11 +125,11 @@ class basis_correction(lib.StreamObject):
       ###verbosity
       global v_level
       if(hasattr(self.obj,'verbose')):
-        v_level=self.obj.verbose
+        v_level = self.obj.verbose
       if(verbose is not None):
-        v_level= verbose
+        v_level = verbose
       else:
-        v_level= 0
+        v_level = 0
 
       ###cover
       printv0('\n\n')
@@ -151,7 +152,7 @@ class basis_correction(lib.StreamObject):
       global morest
       if(len(self.obj.mo_coeff)==len(self.obj.mo_coeff[0])):
         morest           = True
-        self.mo = [0,0]
+        self.mo          = [0,0]
         self.mo[0]       = self.obj.mo_coeff
         self.mo[1]       = self.obj.mo_coeff
         self.nmo         = self.mo[0].shape[0]
@@ -421,11 +422,11 @@ class basis_correction(lib.StreamObject):
       ###mos
       printv0('  %-37s'%('> convert aos to mos'))
       if(morest):
-        self.mos_in_r = [0,0]
+        self.mos_in_r    = [0,0]
         self.mos_in_r[0] = np.dot(self.aos_in_r,self.mo[0])
         self.mos_in_r[1] = self.mos_in_r[0]
       else:
-        self.mos_in_r = [0,0]
+        self.mos_in_r    = [0,0]
         self.mos_in_r[0] = np.dot(self.aos_in_r,self.mo[0])
         self.mos_in_r[1] = np.dot(self.aos_in_r,self.mo[1])
       dev_check_orthos(self)
@@ -599,7 +600,7 @@ class basis_correction(lib.StreamObject):
       self.mu_of_r=math.sqrt(math.pi)*0.5\
                   *np.ma.filled(
                      np.divide(np.ma.masked_where(self.f<-thr_zero,self.f),
-                               np.ma.masked_where(self.n<thr_strict,self.n)),1e10)
+                               np.ma.masked_where(self.n<thr_strict,self.n)),thr_big_nbr)
       if(False): #now using np, above /\
         self.mu_of_r = np.zeros(self.ngrid)
         got_in_A = 0
@@ -610,13 +611,13 @@ class basis_correction(lib.StreamObject):
             n_value=self.n[grid_A]
             if(n_value<thr_strict):
                 got_in_A+=1
-                W_value = 1.e+10
+                W_value = thr_big_nbr
             elif(f_value<-thr_zero):
                 got_in_B+=1
-                W_value = 1.e+10
+                W_value = thr_big_nbr
             elif(f_value*n_value<-thr_zero):
                 got_in_C+=1
-                W_value = 1.e+10
+                W_value = thr_big_nbr
             else:
                 W_value = f_value/n_value
             self.mu_of_r[grid_A] = W_value*math.sqrt(math.pi)*0.5
@@ -730,11 +731,16 @@ class basis_correction(lib.StreamObject):
       if(self.plot):
         print('  %-37s'%('> prepare plots'))
         draw_mol_and_grid(self)
+
+        self.plot_W_at_ref([0.0,0.0,0.0],[1,0,0],'W_at0.0')
+        self.plot_W_at_ref([0.5,0.5,0.5],[1,0,0],'W_at0.5')
+
         plot_histo_grid(self)
         plot_line_plane(self,self.mu_of_r   ,'mu_of_r')
         plot_line_plane(self,self.eps_PBE_sr,'eps_sr',type='under')
         plot_line_plane(self,self.eps_PBE   ,'eps'   ,type='under')
         plot_line_plane(self,self.eps_PBE-self.eps_PBE_sr,'delta')
+
         #dev plot_of_r(self,self.mu_of_r,'mu_of_r_0.1',dim=0.1)
         #dev plot_of_r(self,self.mu_of_r,'mu_of_r_0.4',dim=0.4)
         #dev plot_of_r(self,self.mu_of_r,'mu_of_r_0.8',dim=0.8)
@@ -742,6 +748,35 @@ class basis_correction(lib.StreamObject):
         #dev plot_of_r(self,self.mu_of_r,'mu_of_r_max',dim=self.max)
       end=time.time()
       self.times[13]+=end-start
+
+  def plot_W_at_ref(self,ref,direction,name):
+      ###select line
+      x,pts_line=select_line(self,direction,ref,1e-1)
+
+      #find grid_REF from `ref`
+      shifted=self.grid_coords-ref
+      d=np.sqrt(np.einsum('ij,ij->i',shifted,shifted))
+      grid_REF=np.where(d==d.min())[0][0]
+      if(grid_REF not in pts_line): print('worrisome, I guess...?')
+
+      ###f and n
+      n_at_ref=self.phi_square[0][pts_line]*self.phi_square[1][grid_REF]
+      f_at_ref=np.zeros(len(pts_line))
+      for p in range(self.nmo):
+        for i in range(self.nval_beta):
+          f_at_ref+= self.v_phi_phi[p,i,pts_line]\
+                    *self.mos_in_r[1][grid_REF,p]\
+                    *self.mos_in_r[1][grid_REF,i]\
+      ###W
+      W_at_ref=np.divide(np.ma.masked_where(f_at_ref<-thr_zero ,f_at_ref),
+                         np.ma.masked_where(n_at_ref<thr_strict,n_at_ref))
+
+      filename=self.root+name+'.png'
+      plt.clf()
+      plt.scatter(d[pts_line],W_at_ref)
+      plt.xlim(0,2)
+      plt.savefig(filename)
+      plt.close()
 
   def kernel(self):
       '''
@@ -1045,7 +1080,7 @@ def export_mu_of_r(self):
       del f
     del filename
 
-def mask_outside(dim,list):
+def mask_outside(thr,list):
     '''
     Mask first array in list
     based of values of the other arrays
@@ -1053,10 +1088,10 @@ def mask_outside(dim,list):
     '''
     output=list[0]
     for i in range(len(list)-1):
-      output=np.ma.masked_where(abs(list[i+1])>dim,output,copy=True)
+      output=np.ma.masked_where(abs(list[i+1])>thr,output,copy=True)
     return output
 
-def mask_over(value,list):
+def mask_over(thr,list):
     '''
     Mask all arrays in `list`
     based on values of the first
@@ -1064,10 +1099,10 @@ def mask_over(value,list):
     '''
     output=[0]*len(list)
     for i in range(len(list)):
-      output[i]=np.ma.masked_where(abs(list[0])>value,list[i],copy=True)
+      output[i]=np.ma.masked_where(abs(list[0])>thr,list[i],copy=True)
     return output
 
-def mask_under(value,list):
+def mask_under(thr,list):
     '''
     Mask all arrays in `list`
     based on values of the first
@@ -1075,7 +1110,7 @@ def mask_under(value,list):
     '''
     output=[0]*len(list)
     for i in range(len(list)):
-      output[i]=np.ma.masked_where(abs(list[0])<value,list[i],copy=True)
+      output[i]=np.ma.masked_where(abs(list[0])<thr,list[i],copy=True)
     return output
 
 def plot_histo_grid(self):
@@ -1092,7 +1127,7 @@ def plot_histo_grid(self):
     plt.close()
     printv0('    %-22s  %33s'%('histogram of the grid',filename))
     ###get `max`
-    mu,d=mask_over(10,[self.mu_of_r,d])
+    mu,d=mask_over(thr_large,[self.mu_of_r,d])
     self.max=np.ma.max(d.compressed())
     del d,filename,mu
 
@@ -1108,12 +1143,12 @@ def plot_line_plane(self,f,name,type='over'):
     '''
     import matplotlib.tri as mtri
     ###z=f(x)
-    x,pts_line=select_line(self,self.direction,self.origin)
+    x,pts_line=select_line(self,self.direction,self.origin,1e-1)
     z=f[pts_line]
     if(type=='over'):
-      z,x=mask_over(1e1,[z,x])
+      z,x=mask_over(thr_large,[z,x])
     elif(type=='under'):
-      z,x=mask_under(1e-4,[z,x])
+      z,x=mask_under(thr_zero,[z,x])
     z=z.compressed()
     x=x.compressed()
     ###plot
@@ -1125,12 +1160,12 @@ def plot_line_plane(self,f,name,type='over'):
     printv0('    %-10s  %45s'%('on a line',filename1))
 
     ###z=f(x,y)
-    x,y,pts_plane=select_plane(self,self.normal,self.origin)
+    x,y,pts_plane=select_plane(self,self.normal,self.origin,1e-1)
     z=f[pts_plane]
     if(type=='over'):
-      z,x,y=mask_over(1e1,[z,x,y])
+      z,x,y=mask_over(thr_large,[z,x,y])
     elif(type=='under'):
-      z,x,y=mask_under(1e-4,[z,x,y])
+      z,x,y=mask_under(thr_zero,[z,x,y])
     z=z.compressed()
     x=x.compressed()
     y=y.compressed()
@@ -1212,7 +1247,7 @@ def qualifies(vec,direction,thresh):
      and abs(vec[0]/direction[0]-vec[2]/direction[2])<thresh):qualifies=True
     return qualifies
 
-def select_line(self,direction,origin):
+def select_line(self,direction,origin,thr):
     '''
     Pick up points of the grid
     on a line defined
@@ -1240,7 +1275,7 @@ def select_line(self,direction,origin):
     pts_line=[]
     for grid_A in range(self.ngrid):
       vec=[self.grid_coords[grid_A,i]-origin[i] for i in range(3)]
-      if(qualifies(vec,direction,1e-1)):
+      if(qualifies(vec,direction,thr)):
         pts_line.append(grid_A)
     self.previous_pts_line=pts_line
     matrix=rotate_coords(direction)
@@ -1283,7 +1318,7 @@ def select_line(self,direction,origin):
     del vec,matrix
     return new_coords[pts_line,2],pts_line
 
-def select_plane(self,normal,origin):
+def select_plane(self,normal,origin,thr):
     '''
     Pick up points of the grid
     on a plane defined
@@ -1314,7 +1349,7 @@ def select_plane(self,normal,origin):
     pts_plane=[]
     for grid_A in range(self.ngrid):
       abc=np.dot(normal,self.grid_coords[grid_A])
-      if(abs(abc-d)<1e-1): pts_plane.append(grid_A)
+      if(abs(abc-d)<thr): pts_plane.append(grid_A)
     self.previous_pts_plane=pts_plane
     matrix=rotate_coords(normal)
     new_coords=np.einsum('ij,Aj->Ai',matrix,self.grid_coords)-origin
