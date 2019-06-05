@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore', message=".*Input data contains duplicate x,y p
 ###global
 thr_zero    = 1.e-5
 thr_strict  = 1.e-12
-thr_large   = 1.e+2
+thr_large   = 15
 thr_big_nbr = 1.e+10
 v_level     = None
 dmrest      = None
@@ -80,7 +80,6 @@ class basis_correction(lib.StreamObject):
       n              .\sum_ij i(1)i(1) j(1)j(1)                [N]     (on the grid)
       f              .\sum_pq \sum_ij p(1)q(1)V[pq,ij]i(1)j(1) [N]     (on the grid)
       mu_average     .average value of mu_of_r over the grid
-      max            .maximum distance for the grid points where mu_of_r<thr_large
       xyz            .the xyz coordinates transformed by `mol`
       bonds          .the bonds between atoms as [[i,j],[i,k],...]
 
@@ -534,8 +533,8 @@ class basis_correction(lib.StreamObject):
           self.phi_square[0]+=self.mos_in_r[0][:,i]*self.mos_in_r[0][:,i]
       for i in range(self.nval_beta):
           self.phi_square[1]+=self.mos_in_r[1][:,i]*self.mos_in_r[1][:,i]
-      #dev for grid_A in range(self.ngrid):
-      #dev   print 'phi_square %6i %13.8f'%(grid_A,self.phi_square[0][grid_A])
+      #dev: for grid_A in range(self.ngrid):
+      #dev:   print 'phi_square %6i %13.8f'%(grid_A,self.phi_square[0][grid_A])
       end=time.time()
       self.times[6]+=end-start
 
@@ -555,10 +554,10 @@ class basis_correction(lib.StreamObject):
                                     *self.mos_in_r[0][:,j]
         progress('compute_v_phi_phi',p*self.nval_beta+i+1,self.nval_beta*self.nmo)
       printv0("")
-      #dev for p in range(self.nmo):
-      #dev  for i in range(self.nval_beta):
-      #dev   for grid_A in range(self.ngrid):
-      #dev    print 'v_phi_phi %6i %6i %6i %13.8f'%(p,i,grid_A,self.v_phi_phi[p,i,grid_A])
+      #dev: for p in range(self.nmo):
+      #dev:  for i in range(self.nval_beta):
+      #dev:   for grid_A in range(self.ngrid):
+      #dev:    print 'v_phi_phi %6i %6i %6i %13.8f'%(p,i,grid_A,self.v_phi_phi[p,i,grid_A])
       end=time.time()
       self.times[7]+=end-start
 
@@ -581,10 +580,10 @@ class basis_correction(lib.StreamObject):
                   *self.mos_in_r[1][:,i]
         #progress('compute_f_and_n',p+1,self.nmo*self.nval_beta)
       #printv0("")
-      #dev for grid_A in range(self.ngrid):
-      #dev  print 'n %6i %13.8f'%(grid_A,self.n[grid_A])
-      #dev for grid_A in range(self.ngrid):
-      #dev  print 'f %6i %13.8f'%(grid_A,self.f[grid_A])
+      #dev: for grid_A in range(self.ngrid):
+      #dev:  print 'n %6i %13.8f'%(grid_A,self.n[grid_A])
+      #dev: for grid_A in range(self.ngrid):
+      #dev:  print 'f %6i %13.8f'%(grid_A,self.f[grid_A])
       end=time.time()
       self.times[8]+=end-start
 
@@ -597,10 +596,10 @@ class basis_correction(lib.StreamObject):
       Eq.(16) W(r1,r2) = f(r1,r2)/n2(r1,r2)
       '''
       start=time.time()
-      self.mu_of_r=math.sqrt(math.pi)*0.5\
-                  *np.ma.filled(
-                     np.divide(np.ma.masked_where(self.f<-thr_zero,self.f),
-                               np.ma.masked_where(self.n<thr_strict,self.n)),thr_big_nbr)
+      #dev: consider also when self.f<-thr_zero
+      self.mu_of_r=np.ones(self.ngrid)*thr_big_nbr
+      np.divide(self.f,self.n,out=self.mu_of_r,where=self.n>thr_strict)
+      self.mu_of_r=math.sqrt(math.pi)*0.5*self.mu_of_r
       if(False): #now using np, above /\
         self.mu_of_r = np.zeros(self.ngrid)
         got_in_A = 0
@@ -732,51 +731,21 @@ class basis_correction(lib.StreamObject):
         print('  %-37s'%('> prepare plots'))
         draw_mol_and_grid(self)
 
-        self.plot_W_at_ref([0.0,0.0,0.0],[1,0,0],'W_at0.0')
-        self.plot_W_at_ref([0.5,0.5,0.5],[1,0,0],'W_at0.5')
+        plot_W_at_ref(self,[0.0,0.0,0.0],[1,0,0],'W_at0.0')
+        plot_W_at_ref(self,[0.5,0.5,0.5],[1,0,0],'W_at0.5')
 
         plot_histo_grid(self)
         plot_line_plane(self,self.mu_of_r   ,'mu_of_r')
-        plot_line_plane(self,self.eps_PBE_sr,'eps_sr',type='under')
-        plot_line_plane(self,self.eps_PBE   ,'eps'   ,type='under')
+        plot_line_plane(self,self.eps_PBE_sr,'eps_sr')
+        plot_line_plane(self,self.eps_PBE   ,'eps'   )
         plot_line_plane(self,self.eps_PBE-self.eps_PBE_sr,'delta')
 
-        #dev plot_of_r(self,self.mu_of_r,'mu_of_r_0.1',dim=0.1)
-        #dev plot_of_r(self,self.mu_of_r,'mu_of_r_0.4',dim=0.4)
-        #dev plot_of_r(self,self.mu_of_r,'mu_of_r_0.8',dim=0.8)
-        #dev plot_of_r(self,self.mu_of_r,'mu_of_r_1.2',dim=1.2)
-        #dev plot_of_r(self,self.mu_of_r,'mu_of_r_max',dim=self.max)
+        #dev: plot_of_r(self,self.mu_of_r,'mu_of_r_0.1',dim=0.1)
+        #dev: plot_of_r(self,self.mu_of_r,'mu_of_r_0.4',dim=0.4)
+        #dev: plot_of_r(self,self.mu_of_r,'mu_of_r_0.8',dim=0.8)
+        #dev: plot_of_r(self,self.mu_of_r,'mu_of_r_1.2',dim=1.2)
       end=time.time()
       self.times[13]+=end-start
-
-  def plot_W_at_ref(self,ref,direction,name):
-      ###select line
-      x,pts_line=select_line(self,direction,ref,1e-1)
-
-      #find grid_REF from `ref`
-      shifted=self.grid_coords-ref
-      d=np.sqrt(np.einsum('ij,ij->i',shifted,shifted))
-      grid_REF=np.where(d==d.min())[0][0]
-      if(grid_REF not in pts_line): print('worrisome, I guess...?')
-
-      ###f and n
-      n_at_ref=self.phi_square[0][pts_line]*self.phi_square[1][grid_REF]
-      f_at_ref=np.zeros(len(pts_line))
-      for p in range(self.nmo):
-        for i in range(self.nval_beta):
-          f_at_ref+= self.v_phi_phi[p,i,pts_line]\
-                    *self.mos_in_r[1][grid_REF,p]\
-                    *self.mos_in_r[1][grid_REF,i]\
-      ###W
-      W_at_ref=np.divide(np.ma.masked_where(f_at_ref<-thr_zero ,f_at_ref),
-                         np.ma.masked_where(n_at_ref<thr_strict,n_at_ref))
-
-      filename=self.root+name+'.png'
-      plt.clf()
-      plt.scatter(d[pts_line],W_at_ref)
-      plt.xlim(0,2)
-      plt.savefig(filename)
-      plt.close()
 
   def kernel(self):
       '''
@@ -1122,14 +1091,11 @@ def plot_histo_grid(self):
     ###plot
     filename=self.root+'histo.png'
     plt.clf()
-    plt.hist(d)
+    plt.hist(d,bins=30, alpha=0.5,histtype='stepfilled', color='steelblue')
     plt.savefig(filename)
     plt.close()
     printv0('    %-22s  %33s'%('histogram of the grid',filename))
-    ###get `max`
-    mu,d=mask_over(thr_large,[self.mu_of_r,d])
-    self.max=np.ma.max(d.compressed())
-    del d,filename,mu
+    del d,filename
 
 def plot_line_plane(self,f,name,type='over'):
     '''
@@ -1145,6 +1111,8 @@ def plot_line_plane(self,f,name,type='over'):
     ###z=f(x)
     x,pts_line=select_line(self,self.direction,self.origin,1e-1)
     z=f[pts_line]
+    x=mask_outside(self.range,[x,x])
+    z=mask_outside(self.range,[z,x])
     if(type=='over'):
       z,x=mask_over(thr_large,[z,x])
     elif(type=='under'):
@@ -1154,14 +1122,21 @@ def plot_line_plane(self,f,name,type='over'):
     ###plot
     filename1=self.root+name+'_line.png'
     plt.clf()
-    plt.scatter(x,z)
+    plt.scatter(x,z,s=10)
     plt.savefig(filename1)
     plt.close()
     printv0('    %-10s  %45s'%('on a line',filename1))
 
+    #dev: print '###'+name
+    #dev: for i in range(x.shape[0]):
+    #dev:   print '%20.8f %20.8f'%(x[i],z[i])
+
     ###z=f(x,y)
     x,y,pts_plane=select_plane(self,self.normal,self.origin,1e-1)
     z=f[pts_plane]
+    x=mask_outside(self.range,[x,x,y])
+    y=mask_outside(self.range,[y,x,y])
+    z=mask_outside(self.range,[z,x,y])
     if(type=='over'):
       z,x,y=mask_over(thr_large,[z,x,y])
     elif(type=='under'):
@@ -1175,7 +1150,7 @@ def plot_line_plane(self,f,name,type='over'):
     plt.clf()
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1)
-    contours=ax.tricontour(tri,z, 10, cmap=plt.cm.get_cmap('Blues'))
+    contours=ax.tricontour(tri,z,cmap=plt.cm.get_cmap('RdBu'))
     plt.clabel(contours, inline=True, fontsize=8)
     plt.savefig(filename2)
     plt.close()
@@ -1185,13 +1160,71 @@ def plot_line_plane(self,f,name,type='over'):
     plt.clf()
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1, projection='3d')
-    ax.plot_trisurf(tri,z,cmap=plt.cm.get_cmap('Blues'))
-    ax.scatter(x,y,z, marker='.', s=10, c="gray", alpha=0.5)
+    ax.plot_trisurf(tri,z,cmap=plt.cm.get_cmap('RdBu'))
+    ax.scatter(x,y,z, marker='.', s=10, c="gray", alpha=0.1)
     plt.savefig(filename3)
     plt.close()
     printv0('    %-10s  %45s'%('contour3d',filename3))
     del x,y,z,tri,filename1,filename2,filename3,\
         contours,fig,ax,pts_line,pts_plane
+
+def plot_W_at_ref(self,ref,direction,name):
+    #find grid_REF from `ref`
+    shifted=self.grid_coords-ref
+    d=np.sqrt(np.einsum('ij,ij->i',shifted,shifted))
+    grid_REF=np.where(d==d.min())[0][0]
+
+    ###f and n
+    n_at_ref=self.phi_square[0]*self.phi_square[1][grid_REF]
+    f_at_ref=np.zeros(self.ngrid)
+    for p in range(self.nmo):
+      for i in range(self.nval_beta):
+        f_at_ref+= self.v_phi_phi[p,i,:]\
+                  *self.mos_in_r[1][grid_REF,p]\
+                  *self.mos_in_r[1][grid_REF,i]\
+    ###W
+    W_at_ref=np.ones(self.ngrid)*thr_big_nbr
+    np.divide(f_at_ref,n_at_ref,out=W_at_ref,where=n_at_ref>thr_strict)
+
+    ###select line
+    x,pts_line=select_line(self,direction,ref,1e-1)
+    y,x=mask_over(thr_large,[W_at_ref[pts_line],d[pts_line]])
+    x=x.compressed()
+    y=y.compressed()
+
+    filename=self.root+name+'_line.png'
+    plt.clf()
+    plt.scatter(x,y,s=10)
+    plt.xlim(0,self.range)
+    plt.savefig(filename)
+    plt.close()
+    printv0('    %-10s  %45s'%('on a line',filename))
+
+    ###select plane
+    import matplotlib.tri as mtri
+    x,y,pts_plane=select_plane(self,direction,ref,1e-1)
+    W=mask_outside(self.range,[W_at_ref[pts_plane],x,y])
+    x=mask_outside(self.range,[x,x,y])
+    y=mask_outside(self.range,[y,x,y])
+    W,x,y=mask_over(thr_large,[W,x,y])
+    W=W.compressed()
+    x=x.compressed()
+    y=y.compressed()
+    tri=mtri.Triangulation(x,y)
+
+    filename=self.root+name+'_3d.png'
+    plt.clf()
+    fig = plt.figure()
+    ax = fig.add_subplot(1,1,1, projection='3d')
+    ax.plot_trisurf(tri,W,cmap=plt.cm.get_cmap('RdBu'))
+    ax.scatter(x,y,W, marker='.', s=10, c="gray", alpha=0.1)
+    plt.savefig(filename)
+    plt.close()
+    printv0('    %-10s  %45s'%('contour3d',filename))
+
+    #dev: print '###'+name
+    #dev: for i in range(len(pts_line)):
+    #dev:   print '%20.8f %20.8f'%(d[pts_line][i],W_at_ref[i])
 
 def plot_of_r(self,f,name,dim=2,x=None,y=None,z=None):
     '''
@@ -1212,9 +1245,8 @@ def plot_of_r(self,f,name,dim=2,x=None,y=None,z=None):
     plt.clf()
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    img = ax.scatter(x, y, z, c=f1,alpha=0.7,s=50,lw=2,
-                     cmap=plt.cm.get_cmap('Blues'),vmin=f0.min(),vmax=f0.max())
-    fig.colorbar(img)
+    img = ax.scatter(x, y, z, c=f1,alpha=0.5,s=25,lw=2,
+                     cmap=plt.cm.get_cmap('RdBu'),vmin=f0.min(),vmax=f0.max())
     plt.savefig(filename)
     plt.close()
     printv0('    %-25s  %30s'%(name,filename))
@@ -1283,14 +1315,13 @@ def select_line(self,direction,origin,thr):
 
     ###testing
     if(True):
-      dim=2.0
       plt.clf()
       fig = plt.figure()
       ax = fig.add_subplot(111, projection='3d')
       ax.set_aspect('equal')
-      ax.set_xlim(-dim,dim)
-      ax.set_ylim(-dim,dim)
-      ax.set_zlim(-dim,dim)
+      ax.set_xlim(-self.range,self.range)
+      ax.set_ylim(-self.range,self.range)
+      ax.set_zlim(-self.range,self.range)
       ###plot atoms
       new_xyz=np.einsum('ij,Aj->Ai',matrix,self.xyz)-origin
       newx=new_xyz[:,0]
@@ -1307,14 +1338,14 @@ def select_line(self,direction,origin,thr):
       x=new_coords[pts_line,0]
       y=new_coords[pts_line,1]
       z=new_coords[pts_line,2]
-      x=mask_outside(dim,[x,x,y,z])
-      y=mask_outside(dim,[y,x,y,z])
-      z=mask_outside(dim,[z,x,y,z])
-      ax.scatter(x,y,z, c='Gray',alpha=0.5,s=25)
+      x=mask_outside(self.range,[x,x,y,z])
+      y=mask_outside(self.range,[y,x,y,z])
+      z=mask_outside(self.range,[z,x,y,z])
+      ax.scatter(x,y,z, c='red',alpha=0.1,s=25)
       plt.savefig(self.root+'pts_of_line.png')
       plt.close()
       printv0('    %-15s  %40s'%('selected line',self.root+'pts_of_line.png'))
-      del dim,fig,ax,new_xyz,newx,newy,newz,x,y,z
+      del fig,ax,new_xyz,newx,newy,newz,x,y,z
     del vec,matrix
     return new_coords[pts_line,2],pts_line
 
@@ -1356,14 +1387,13 @@ def select_plane(self,normal,origin,thr):
 
     ###testing
     if(True):
-      dim=2.0
       plt.clf()
       fig = plt.figure()
       ax = fig.add_subplot(111, projection='3d')
       ax.set_aspect('equal')
-      ax.set_xlim(-dim,dim)
-      ax.set_ylim(-dim,dim)
-      ax.set_zlim(-dim,dim)
+      ax.set_xlim(-self.range,self.range)
+      ax.set_ylim(-self.range,self.range)
+      ax.set_zlim(-self.range,self.range)
       ###plot atoms
       new_xyz=np.einsum('ij,Aj->Ai',matrix,self.xyz)-origin
       newx=new_xyz[:,0]
@@ -1380,14 +1410,14 @@ def select_plane(self,normal,origin,thr):
       x=new_coords[pts_plane,0]
       y=new_coords[pts_plane,1]
       z=new_coords[pts_plane,2]
-      x=mask_outside(dim,[x,x,y,z])
-      y=mask_outside(dim,[y,x,y,z])
-      z=mask_outside(dim,[z,x,y,z])
-      ax.scatter(x,y,z, c='Gray',alpha=0.5,s=25)
+      x=mask_outside(self.range,[x,x,y,z])
+      y=mask_outside(self.range,[y,x,y,z])
+      z=mask_outside(self.range,[z,x,y,z])
+      ax.scatter(x,y,z, c='red',alpha=0.1,s=25)
       plt.savefig(self.root+'pts_of_plane.png')
       plt.close()
-      printv0('    %-15s  %40s'%('selected plane',self.root+'pts_of_line.png'))
-      del dim,fig,ax,new_xyz,newx,newy,newz,x,y,z
+      printv0('    %-15s  %40s'%('selected plane',self.root+'pts_of_plane.png'))
+      del fig,ax,new_xyz,newx,newy,newz,x,y,z
     del d,abc,matrix
 
     return new_coords[pts_plane,0],new_coords[pts_plane,1],pts_plane
@@ -1426,14 +1456,9 @@ def draw_mol_and_grid(self):
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1,projection='3d')
     ax.set_aspect('equal')
-    ###plot grid pts
-    x=mask_outside(2.0,[self.grid_coords[:,0],self.grid_coords[:,0], self.grid_coords[:,1], self.grid_coords[:,2]])
-    y=mask_outside(2.0,[self.grid_coords[:,1],self.grid_coords[:,0], self.grid_coords[:,1], self.grid_coords[:,2]])
-    z=mask_outside(2.0,[self.grid_coords[:,2],self.grid_coords[:,0], self.grid_coords[:,1], self.grid_coords[:,2]])
-    ax.scatter(x,y,z, c='Gray',alpha=0.08,s=25)
     ###get info about the molecule
     vdw={'H' :1.20,'He':1.40,
-         'Li':1.82,'C' :1.70,'N' :1.55,'O' :1.52,'F' :1.47,'Ne':1.54,
+         'Li':1.82,'Be':1.1111111,'C' :1.70,'N' :1.55,'O' :1.52,'F' :1.47,'Ne':1.54,
          'Na':2.27,'Mg':1.73,'Si':2.10,'P' :1.80,'S' :1.80,'Cl':1.75,'Ar':1.88,
          'K' :2.75,'Ni':1.63,'Cu':1.40,'Zn':1.39,'Ga':1.87,'As':1.85,'Se':1.90,'Br':1.85,'Kr':2.02,
          'Pd':1.63,'Ag':1.72,'Cd':1.58,'In':1.93,'Sn':2.17,'Te':2.06,'I' :1.98,'Xe':2.16,
@@ -1451,6 +1476,14 @@ def draw_mol_and_grid(self):
       atomy.append(atom[1][1])
       atomz.append(atom[1][2])
     self.xyz=np.asarray(self.xyz)
+    ###range of the molecule
+    self.range=self.xyz.max()-self.xyz.min()
+    if(self.range==0):
+      self.range=vdw[elt[0]]*1.5
+    else:
+      self.range=self.range*1.2
+    print('range is',self.range)
+    ###sizes of atoms
     s=[700*vdw[i] for i in elt]
     ###get bonds
     self.bonds=[]
@@ -1466,7 +1499,13 @@ def draw_mol_and_grid(self):
       z1=[atomz[i] for i in self.bonds[b]]
       ax.plot(x1,y1,z1,'b-',lw=5)
     ###plot atoms
-    ax.scatter(atomx,atomy,atomz, s=s,alpha=1.,c='Blue')
+    ax.scatter(atomx,atomy,atomz, s=s,alpha=1.,c='red')
+    ###plot grid pts
+    x=mask_outside(self.range,[self.grid_coords[:,0],self.grid_coords[:,0], self.grid_coords[:,1], self.grid_coords[:,2]])
+    y=mask_outside(self.range,[self.grid_coords[:,1],self.grid_coords[:,0], self.grid_coords[:,1], self.grid_coords[:,2]])
+    z=mask_outside(self.range,[self.grid_coords[:,2],self.grid_coords[:,0], self.grid_coords[:,1], self.grid_coords[:,2]])
+    ax.scatter(x,y,z, c='blue',alpha=0.1,s=25)
+    ###save
     plt.savefig(self.root+'molecule_and_grid.png')
     plt.close()
     printv0('    %-10s  %45s'%('molecule',self.root+'molecule_and_grid.png'))
@@ -1528,9 +1567,9 @@ def dev_check_orthos(self):
         a[i,j]=integrate(self,self.aos_in_r[:,i]*self.aos_in_r[:,j])
       log('norm(ovlp-ovlp)=0 (AO)',np.linalg.norm(a-ref))
       ###print <AO|AO>-ovlp
-      #dev print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
-      #dev for i in range(self.nmo):
-      #dev   print('%8i'%(i+1)+''.join(['%20.8f'%(a[i,j]-ref[i,j]) for j in range(i+1)]))
+      #dev: print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
+      #dev: for i in range(self.nmo):
+      #dev:   print('%8i'%(i+1)+''.join(['%20.8f'%(a[i,j]-ref[i,j]) for j in range(i+1)]))
 
     ref=np.diag([1]*self.nmo)
     a=np.zeros((self.nmo,self.nmo))
@@ -1539,9 +1578,9 @@ def dev_check_orthos(self):
       a[i,j]=integrate(self,self.mos_in_r[0][:,i]*self.mos_in_r[0][:,j])
     log('norm(ovlp-ovlp)=0 (MOa)',np.linalg.norm(a-ref))
     ###print <MO|MO>-1mat
-    #dev print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
-    #dev for i in range(self.nmo):
-    #dev   print('%8i'%(i+1)+''.join(['%20.8f'%(a[i,j]-ref[i,j]) for j in range(i+1)]))
+    #dev: print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
+    #dev: for i in range(self.nmo):
+    #dev:   print('%8i'%(i+1)+''.join(['%20.8f'%(a[i,j]-ref[i,j]) for j in range(i+1)]))
 
     ref=np.diag([1]*self.nmo)
     a=np.zeros((self.nmo,self.nmo))
@@ -1550,9 +1589,9 @@ def dev_check_orthos(self):
       a[i,j]=integrate(self,self.mos_in_r[1][:,i]*self.mos_in_r[1][:,j])
     log('norm(ovlp-ovlp)=0 (MOb)',np.linalg.norm(a-ref))
     ###print <MO|MO>-1mat
-    #dev print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
-    #dev for i in range(self.nmo):
-    #dev   print('%8i'%(i+1)+''.join(['%20.8f'%(a[i,j]-ref[i,j]) for j in range(i+1)]))
+    #dev: print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
+    #dev: for i in range(self.nmo):
+    #dev:   print('%8i'%(i+1)+''.join(['%20.8f'%(a[i,j]-ref[i,j]) for j in range(i+1)]))
     del a,ref
 
 def dev_check_mos_rho(self):
