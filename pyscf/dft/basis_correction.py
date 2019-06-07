@@ -67,8 +67,8 @@ class basis_correction(lib.StreamObject):
       grid_weights   .the grid points weights       [N]       (inherited from 'obj')
       mo             .the MO coefficient            [nmo,nmo] (inherited from 'obj')
       v              .the integrals, in MOs         [nmo,nmo,nocc,nocc]
-      aos_in_r       .the AOs                       [N,nmo]            (on the grid)
-      mos_in_r       .the MOs                       [N,nmo]            (on the grid)
+      aos_of_r       .the AOs                       [N,nmo]            (on the grid)
+      mos_of_r       .the MOs                       [N,nmo]            (on the grid)
       rho_alpha      .the alpha-density             [N]                (on the grid)
       rho_beta       .the beta-density              [N]                (on the grid)
       rho            .the density                   [N]                (on the grid)
@@ -186,7 +186,7 @@ class basis_correction(lib.StreamObject):
       self.labels = ['get_integrals',
                      'get_dm',
                      'get_grid',
-                     'get_mos_in_r',
+                     'get_mos_of_r',
                      'get_rhos',
                      'get_eps_PBE',
                      'compute_phi_square',
@@ -308,7 +308,7 @@ class basis_correction(lib.StreamObject):
       self.get_dm()
       self.get_integrals()
       self.get_grid()
-      self.get_mos_in_r()
+      self.get_mos_of_r()
       self.get_rhos()
       self.get_eps_PBE()
 
@@ -406,7 +406,7 @@ class basis_correction(lib.StreamObject):
       end=time.time()
       self.times[2]+=end-start
 
-  def get_mos_in_r(self):
+  def get_mos_of_r(self):
       '''
       Get the AOs and MOs
       over the grid
@@ -414,20 +414,20 @@ class basis_correction(lib.StreamObject):
       Uses: dft.numint.eval_ao
       '''
       start=time.time()
-      header('get_mos_in_r')
+      header('get_mos_of_r')
       ###aos
-      self.aos_in_r = dft.numint.eval_ao(self.obj.mol,self.grid_coords)
+      self.aos_of_r = dft.numint.eval_ao(self.obj.mol,self.grid_coords)
 
       ###mos
       printv0('  %-37s'%('> convert aos to mos'))
       if(morest):
-        self.mos_in_r    = [0,0]
-        self.mos_in_r[0] = np.dot(self.aos_in_r,self.mo[0])
-        self.mos_in_r[1] = self.mos_in_r[0]
+        self.mos_of_r    = [0,0]
+        self.mos_of_r[0] = np.dot(self.aos_of_r,self.mo[0])
+        self.mos_of_r[1] = self.mos_of_r[0]
       else:
-        self.mos_in_r    = [0,0]
-        self.mos_in_r[0] = np.dot(self.aos_in_r,self.mo[0])
-        self.mos_in_r[1] = np.dot(self.aos_in_r,self.mo[1])
+        self.mos_of_r    = [0,0]
+        self.mos_of_r[0] = np.dot(self.aos_of_r,self.mo[0])
+        self.mos_of_r[1] = np.dot(self.aos_of_r,self.mo[1])
       dev_check_orthos(self)
       end=time.time()
       self.times[3]+=end-start
@@ -442,12 +442,12 @@ class basis_correction(lib.StreamObject):
       start=time.time()
       header('get_rhos')
       if(dmrest):
-        self.rho_alpha = dft.numint.eval_rho(self.obj.mol, self.aos_in_r, self.dm[0])
+        self.rho_alpha = dft.numint.eval_rho(self.obj.mol, self.aos_of_r, self.dm[0])
         self.rho_beta  = self.rho_alpha
         self.rho       = self.rho_alpha+self.rho_beta
       else:
-        self.rho_alpha = dft.numint.eval_rho(self.obj.mol, self.aos_in_r, self.dm[0])
-        self.rho_beta  = dft.numint.eval_rho(self.obj.mol, self.aos_in_r, self.dm[1])
+        self.rho_alpha = dft.numint.eval_rho(self.obj.mol, self.aos_of_r, self.dm[0])
+        self.rho_beta  = dft.numint.eval_rho(self.obj.mol, self.aos_of_r, self.dm[1])
         self.rho       = self.rho_alpha+self.rho_beta
       dev_check_rho_nelec(self)
       dev_check_mos_rho(self)
@@ -503,11 +503,15 @@ class basis_correction(lib.StreamObject):
       ###path to mu_of_r
       if(self.mu==None):
         printv0('  %-37s'%('> compute intermediary and mu_of_r'))
-        self.compute_phi_square()
-        self.compute_v_phi_phi()
-        self.compute_f_and_n()
-        self.compute_mu_of_r()
-        dev_check_f(self)
+        ###dev
+        if(False):
+          self.try_proj_coulomb()
+        else:
+          self.compute_phi_square()
+          self.compute_v_phi_phi()
+          self.compute_f_and_n()
+          self.compute_mu_of_r()
+          dev_check_f(self)
         export_mu_of_r(self)
       elif(isinstance(self.mu,float)):
         printv0('  %-37s  %20.8f'%('> mu_of_r imposed',self.mu))
@@ -530,9 +534,9 @@ class basis_correction(lib.StreamObject):
       start=time.time()
       self.phi_square=[np.zeros(self.ngrid),np.zeros(self.ngrid)]
       for i in range(self.nval_alpha):
-          self.phi_square[0]+=self.mos_in_r[0][:,i]*self.mos_in_r[0][:,i]
+          self.phi_square[0]+=self.mos_of_r[0][:,i]*self.mos_of_r[0][:,i]
       for i in range(self.nval_beta):
-          self.phi_square[1]+=self.mos_in_r[1][:,i]*self.mos_in_r[1][:,i]
+          self.phi_square[1]+=self.mos_of_r[1][:,i]*self.mos_of_r[1][:,i]
       #dev: for grid_A in range(self.ngrid):
       #dev:   print 'phi_square %6i %13.8f'%(grid_A,self.phi_square[0][grid_A])
       end=time.time()
@@ -550,8 +554,8 @@ class basis_correction(lib.StreamObject):
         for j in range(self.nval_alpha):
          for q in range(self.nmo):
               self.v_phi_phi[p,i,:]+=self.v[p,q,i,j]\
-                                    *self.mos_in_r[0][:,q]\
-                                    *self.mos_in_r[0][:,j]
+                                    *self.mos_of_r[0][:,q]\
+                                    *self.mos_of_r[0][:,j]
         progress('compute_v_phi_phi',p*self.nval_beta+i+1,self.nval_beta*self.nmo)
       printv0("")
       #dev: for p in range(self.nmo):
@@ -576,14 +580,53 @@ class basis_correction(lib.StreamObject):
       for p in range(self.nmo):
         for i in range(self.nval_beta):
           self.f+= self.v_phi_phi[p,i,:]\
-                  *self.mos_in_r[1][:,p]\
-                  *self.mos_in_r[1][:,i]
+                  *self.mos_of_r[1][:,p]\
+                  *self.mos_of_r[1][:,i]
         #progress('compute_f_and_n',p+1,self.nmo*self.nval_beta)
       #printv0("")
       #dev: for grid_A in range(self.ngrid):
       #dev:  print 'n %6i %13.8f'%(grid_A,self.n[grid_A])
       #dev: for grid_A in range(self.ngrid):
       #dev:  print 'f %6i %13.8f'%(grid_A,self.f[grid_A])
+      end=time.time()
+      self.times[8]+=end-start
+
+  def try_proj_coulomb(self):
+      '''
+      HERE
+      '''
+      start=time.time()
+      print('\n############### DEVELOPMENT #############\n')
+
+      if(False):
+        ### IN AOS ###
+        ###j_pq = \int_12 \phi_p(r1) 1/r12 \phi_q(r2)
+        self.j=self.obj.mol.intor('int2c2e_sph') #,hermi=1)
+        ovlp_inv=np.linalg.inv(self.obj.get_ovlp())
+        self.c=np.einsum('ij,jk,kl->il',ovlp_inv.T,self.j,ovlp_inv)
+
+        ###mu_of_r
+        self.mu_of_r=np.zeros(self.ngrid)
+        for p in range(self.nmo):
+          for q in range(self.nmo):
+            self.mu_of_r+=self.aos_of_r[:,p]*self.aos_of_r[:,q]\
+                         *self.c[p,q]*math.sqrt(math.pi)*0.5
+
+      else:
+        ### IN MOS ###
+        ###j_pq = \int_12 \phi_p(r1) 1/r12 \phi_q(r2)
+        self.j=self.obj.mol.intor('int2c2e_sph') #,hermi=1)
+        self.j=np.einsum('ij,jk,kl->il',self.mo[0].T,self.j,self.mo[1])
+        self.c=self.j
+
+        ###mu_of_r
+        self.mu_of_r=np.zeros(self.ngrid)
+        for p in range(self.nmo):
+          for q in range(self.nmo):
+            self.mu_of_r+=self.mos_of_r[0][:,p]*self.mos_of_r[1][:,q]\
+                         *self.c[p,q]*math.sqrt(math.pi)*0.5
+
+      print('\n############ END OF DEVELOPMENT ##########\n')
       end=time.time()
       self.times[8]+=end-start
 
@@ -1161,7 +1204,7 @@ def plot_line_plane(self,f,name,type='over'):
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1, projection='3d')
     ax.plot_trisurf(tri,z,cmap=plt.cm.get_cmap('RdBu'))
-    ax.scatter(x,y,z, marker='.', s=10, c="gray", alpha=0.1)
+   #ax.scatter(x,y,z, marker='.', s=10, c="gray", alpha=0.1)
     plt.savefig(filename3)
     plt.close()
     printv0('    %-10s  %45s'%('contour3d',filename3))
@@ -1169,22 +1212,35 @@ def plot_line_plane(self,f,name,type='over'):
         contours,fig,ax,pts_line,pts_plane
 
 def plot_W_at_ref(self,ref,direction,name):
+    '''
+    HERE
+    '''
     #find grid_REF from `ref`
     shifted=self.grid_coords-ref
     d=np.sqrt(np.einsum('ij,ij->i',shifted,shifted))
     grid_REF=np.where(d==d.min())[0][0]
 
-    ###f and n
-    n_at_ref=self.phi_square[0]*self.phi_square[1][grid_REF]
-    f_at_ref=np.zeros(self.ngrid)
-    for p in range(self.nmo):
-      for i in range(self.nval_beta):
-        f_at_ref+= self.v_phi_phi[p,i,:]\
-                  *self.mos_in_r[1][grid_REF,p]\
-                  *self.mos_in_r[1][grid_REF,i]\
-    ###W
-    W_at_ref=np.ones(self.ngrid)*thr_big_nbr
-    np.divide(f_at_ref,n_at_ref,out=W_at_ref,where=n_at_ref>thr_strict)
+    if(not(hasattr(self,'phi_square') and hasattr(self,'v_phi_phi'))):
+     #print('>>> CANNOT DO W_at_ref BECAUSE IMPORTED mu_of_r')
+     #return
+      ###W
+      W_at_ref=np.zeros(self.ngrid)
+      for p in range(self.nmo):
+        for q in range(self.nmo):
+          W_at_ref+=self.mos_of_r[0][grid_REF,p]*self.mos_of_r[1][:,q]\
+                   *self.j[p,q]
+    else:
+      ###f and n
+      n_at_ref=self.phi_square[0]*self.phi_square[1][grid_REF]
+      f_at_ref=np.zeros(self.ngrid)
+      for p in range(self.nmo):
+        for i in range(self.nval_beta):
+          f_at_ref+= self.v_phi_phi[p,i,:]\
+                    *self.mos_of_r[1][grid_REF,p]\
+                    *self.mos_of_r[1][grid_REF,i]\
+      ###W
+      W_at_ref=np.ones(self.ngrid)*thr_big_nbr
+      np.divide(f_at_ref,n_at_ref,out=W_at_ref,where=n_at_ref>thr_strict)
 
     ###select line
     x,pts_line=select_line(self,direction,ref,1e-1)
@@ -1217,7 +1273,7 @@ def plot_W_at_ref(self,ref,direction,name):
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1, projection='3d')
     ax.plot_trisurf(tri,W,cmap=plt.cm.get_cmap('RdBu'))
-    ax.scatter(x,y,W, marker='.', s=10, c="gray", alpha=0.1)
+   #ax.scatter(x,y,W, marker='.', s=10, c="gray", alpha=0.1)
     plt.savefig(filename)
     plt.close()
     printv0('    %-10s  %45s'%('contour3d',filename))
@@ -1482,7 +1538,7 @@ def draw_mol_and_grid(self):
       self.range=vdw[elt[0]]*1.5
     else:
       self.range=self.range*1.2
-    print('range is',self.range)
+    printv0('    %-35s  %20.1f'%('range is',self.range))
     ###sizes of atoms
     s=[700*vdw[i] for i in elt]
     ###get bonds
@@ -1519,6 +1575,7 @@ def draw_mol_and_grid(self):
           self.xyz[self.bonds[b][0]][0]-self.xyz[self.bonds[b][1]][0],\
           self.xyz[self.bonds[b][0]][1]-self.xyz[self.bonds[b][1]][1],\
           self.xyz[self.bonds[b][0]][2]-self.xyz[self.bonds[b][1]][2])
+      exit(0)
     del fig,ax,x,y,z,vdw,elt,atomx,atomy,atomz,s
 
 #  -----------------------------  #
@@ -1564,7 +1621,7 @@ def dev_check_orthos(self):
       a=np.zeros((self.nmo,self.nmo))
       for i in range(self.nmo):
        for j in range(self.nmo):
-        a[i,j]=integrate(self,self.aos_in_r[:,i]*self.aos_in_r[:,j])
+        a[i,j]=integrate(self,self.aos_of_r[:,i]*self.aos_of_r[:,j])
       log('norm(ovlp-ovlp)=0 (AO)',np.linalg.norm(a-ref))
       ###print <AO|AO>-ovlp
       #dev: print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
@@ -1575,7 +1632,7 @@ def dev_check_orthos(self):
     a=np.zeros((self.nmo,self.nmo))
     for i in range(self.nmo):
      for j in range(self.nmo):
-      a[i,j]=integrate(self,self.mos_in_r[0][:,i]*self.mos_in_r[0][:,j])
+      a[i,j]=integrate(self,self.mos_of_r[0][:,i]*self.mos_of_r[0][:,j])
     log('norm(ovlp-ovlp)=0 (MOa)',np.linalg.norm(a-ref))
     ###print <MO|MO>-1mat
     #dev: print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
@@ -1586,7 +1643,7 @@ def dev_check_orthos(self):
     a=np.zeros((self.nmo,self.nmo))
     for i in range(self.nmo):
      for j in range(self.nmo):
-      a[i,j]=integrate(self,self.mos_in_r[1][:,i]*self.mos_in_r[1][:,j])
+      a[i,j]=integrate(self,self.mos_of_r[1][:,i]*self.mos_of_r[1][:,j])
     log('norm(ovlp-ovlp)=0 (MOb)',np.linalg.norm(a-ref))
     ###print <MO|MO>-1mat
     #dev: print(''.join(['%20i'%(i+1) for i in range(self.nmo)]))
@@ -1600,31 +1657,31 @@ def dev_check_mos_rho(self):
   in several different ways
   '''
   if(v_level>1):
-    rho=np.einsum('pi,ij,pj->p', self.aos_in_r, self.dm[0], self.aos_in_r)
+    rho=np.einsum('pi,ij,pj->p', self.aos_of_r, self.dm[0], self.aos_of_r)
     log('norm(rho-rho)=0 (dm)',np.linalg.norm(rho-self.rho_alpha))
-    rho=np.einsum('pi,ij,pj->p', self.aos_in_r, self.dm[1], self.aos_in_r)
+    rho=np.einsum('pi,ij,pj->p', self.aos_of_r, self.dm[1], self.aos_of_r)
     log('norm(rho-rho)=0 (dm)',np.linalg.norm(rho-self.rho_beta))
 
     occ=[[1]*self.nelec_alpha+[0]*(self.nmo-self.nelec_alpha),
          [1]*self.nelec_beta +[0]*(self.nmo-self.nelec_beta )]
     rho=np.zeros(self.ngrid)
     for i in range(self.nmo):
-        rho+=occ[0][i]*self.mos_in_r[0][:,i]**2
+        rho+=occ[0][i]*self.mos_of_r[0][:,i]**2
     log('norm(rho-rho)=0 (occ) (onlySR)',np.linalg.norm(rho-self.rho_alpha))
 
     rho=np.zeros(self.ngrid)
     for i in range(self.nmo):
-        rho+=occ[1][i]*self.mos_in_r[1][:,i]**2
+        rho+=occ[1][i]*self.mos_of_r[1][:,i]**2
     log('norm(rho-rho)=0 (occ) (onlySR)',np.linalg.norm(rho-self.rho_beta))
 
     rho=np.zeros(self.ngrid)
     for i in range(self.nval_alpha):
-        rho+=self.mos_in_r[0][:,i]**2
+        rho+=self.mos_of_r[0][:,i]**2
     log('norm(rho-rho)=0 (alpha) (onlySR)',np.linalg.norm(rho-self.rho_alpha))
 
     rho=np.zeros(self.ngrid)
     for i in range(self.nval_beta):
-        rho+=self.mos_in_r[1][:,i]**2
+        rho+=self.mos_of_r[1][:,i]**2
     log('norm(rho-rho)=0 (beta) (onlySR)',np.linalg.norm(rho-self.rho_beta))
     del rho
 
@@ -1677,7 +1734,7 @@ def dev_check_f(self):
     int_f=np.zeros(self.ngrid)
     for j in range(self.nval_alpha):
       for p in range(self.nmo):
-        prod=self.mos_in_r[0][:,j]*self.mos_in_r[0][:,p]
+        prod=self.mos_of_r[0][:,j]*self.mos_of_r[0][:,p]
         for i in range(self.nval_beta):
           int_f+=prod*self.v[p,i,j,i]
     log('int(f)=Ecoul (if mo_alpha=mo_beta)',  2.0*integrate(self,int_f))
