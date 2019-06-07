@@ -52,9 +52,9 @@ class basis_correction(lib.StreamObject):
       grid_level     .an integer define the quality of the grid when it is built
       verbose        .verbosity trigger
       plot           .trigger plots
-      origin         .origin point in case of plots
-      direction      .direction vector for y=f(x) on a line in case of plots
-      normal         .normal vector for z=f(x,y) on a plane in case of plots
+      origin         .origin point (plots)
+      direction      .direction vector for y=f(x) on a line (plots)
+      normal         .normal vector for z=f(x,y) on a plane (plots)
 
   Attributes:
       run            .is the run RESTRICTED/UNRESTRICTED/RESTRICED_OPEN
@@ -548,16 +548,20 @@ class basis_correction(lib.StreamObject):
       on the grid, as an intermediary to `f(r,r)`
       '''
       start=time.time()
-      self.v_phi_phi=np.zeros((self.nmo,self.nval_beta,self.ngrid))
-      for p in range(self.nmo):
-       for i in range(self.nval_beta):
-        for j in range(self.nval_alpha):
-         for q in range(self.nmo):
-              self.v_phi_phi[p,i,:]+=self.v[p,q,i,j]\
-                                    *self.mos_of_r[0][:,q]\
-                                    *self.mos_of_r[0][:,j]
-        progress('compute_v_phi_phi',p*self.nval_beta+i+1,self.nval_beta*self.nmo)
-      printv0("")
+      self.v_phi_phi=np.einsum("pqij,Aq,Aj->piA",self.v[:,:,:self.nval_beta,:],
+                                                 self.mos_of_r[0],
+                                                 self.mos_of_r[0][:,:self.nval_alpha])
+      if(False): #now using np, above /\
+        self.v_phi_phi=np.zeros((self.nmo,self.nval_beta,self.ngrid))
+        for i in range(self.nval_beta):
+         for p in range(self.nmo):
+          for q in range(self.nmo):
+           for j in range(self.nval_alpha):
+                self.v_phi_phi[p,i,:]+=self.v[p,q,i,j]\
+                                      *self.mos_of_r[0][:,q]\
+                                      *self.mos_of_r[0][:,j]
+          progress('compute_v_phi_phi',i*self.nmo+p+1,self.nval_beta*self.nmo)
+        printv0("")
       #dev: for p in range(self.nmo):
       #dev:  for i in range(self.nval_beta):
       #dev:   for grid_A in range(self.ngrid):
@@ -576,14 +580,18 @@ class basis_correction(lib.StreamObject):
       '''
       start=time.time()
       self.n=self.phi_square[0]*self.phi_square[1]
-      self.f=np.zeros(self.ngrid)
-      for p in range(self.nmo):
-        for i in range(self.nval_beta):
-          self.f+= self.v_phi_phi[p,i,:]\
-                  *self.mos_of_r[1][:,p]\
-                  *self.mos_of_r[1][:,i]
-        #progress('compute_f_and_n',p+1,self.nmo*self.nval_beta)
-      #printv0("")
+      self.f=np.einsum("piA,Ap,Ai->A",self.v_phi_phi
+                                     ,self.mos_of_r[1],
+                                     self.mos_of_r[1][:,:self.nval_beta])
+      if(False): #now using np, above /\
+        self.f=np.zeros(self.ngrid)
+        for p in range(self.nmo):
+          for i in range(self.nval_beta):
+            self.f+= self.v_phi_phi[p,i,:]\
+                    *self.mos_of_r[1][:,p]\
+                    *self.mos_of_r[1][:,i]
+          #progress('compute_f_and_n',p+1,self.nmo*self.nval_beta)
+        #printv0("")
       #dev: for grid_A in range(self.ngrid):
       #dev:  print 'n %6i %13.8f'%(grid_A,self.n[grid_A])
       #dev: for grid_A in range(self.ngrid):
@@ -1224,20 +1232,27 @@ def plot_W_at_ref(self,ref,direction,name):
      #print('>>> CANNOT DO W_at_ref BECAUSE IMPORTED mu_of_r')
      #return
       ###W
-      W_at_ref=np.zeros(self.ngrid)
-      for p in range(self.nmo):
-        for q in range(self.nmo):
-          W_at_ref+=self.mos_of_r[0][grid_REF,p]*self.mos_of_r[1][:,q]\
-                   *self.j[p,q]
+      W_at_ref=np.einsum("p,Aq,pq->A",self.mos_of_r[0][grid_REF,:],
+                                      self.mos_of_r[1],self.j)
+      if(False): #now using np, above /\
+        W_at_ref=np.zeros(self.ngrid)
+        for p in range(self.nmo):
+          for q in range(self.nmo):
+            W_at_ref+=self.mos_of_r[0][grid_REF,p]*self.mos_of_r[1][:,q]\
+                     *self.j[p,q]
     else:
       ###f and n
       n_at_ref=self.phi_square[0]*self.phi_square[1][grid_REF]
-      f_at_ref=np.zeros(self.ngrid)
-      for p in range(self.nmo):
-        for i in range(self.nval_beta):
-          f_at_ref+= self.v_phi_phi[p,i,:]\
-                    *self.mos_of_r[1][grid_REF,p]\
-                    *self.mos_of_r[1][grid_REF,i]\
+      f_at_ref=np.einsum("piA,p,i->A",self.v_phi_phi[:,:self.nval_beta,:],
+                                      self.mos_of_r[1][grid_REF,:],
+                                      self.mos_of_r[1][grid_REF,:self.nval_beta])
+      if(False): #now using np, above /\
+        f_at_ref=np.zeros(self.ngrid)
+        for p in range(self.nmo):
+          for i in range(self.nval_beta):
+            f_at_ref+= self.v_phi_phi[p,i,:]\
+                      *self.mos_of_r[1][grid_REF,p]\
+                      *self.mos_of_r[1][grid_REF,i]\
       ###W
       W_at_ref=np.ones(self.ngrid)*thr_big_nbr
       np.divide(f_at_ref,n_at_ref,out=W_at_ref,where=n_at_ref>thr_strict)
