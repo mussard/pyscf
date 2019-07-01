@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from pyscf import lib,dft,ao2mo,scf
+from pyscf import lib,dft,ao2mo
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
@@ -108,7 +108,8 @@ class basis_correction(lib.StreamObject):
                dm=None,root='',mu=None,
                grid_file=None,grid_level=3,
                verbose=None,plot=False,
-               origin=[0,0,0],direction=[0,0,1],normal=[1,0,0]):
+               origin=[0,0,0],direction=[0,0,1],normal=[1,0,0],
+               **kwargs):
       ###arguments
       self.obj         = obj
       self.dm          = dm
@@ -120,6 +121,15 @@ class basis_correction(lib.StreamObject):
       self.origin      = origin
       self.direction   = direction
       self.normal      = normal
+      self.kwargs      = kwargs
+
+      ###get_ovlp
+      self.get_ovlp = None
+      if(hasattr(self.obj,'get_ovlp')):
+        self.get_ovlp = self.obj.get_ovlp
+      elif(hasattr(self.obj,'_scf')):
+        if(hasattr(self.obj._scf,'get_ovlp')):
+          self.get_ovlp = self.obj._scf.get_ovlp
 
       ###verbosity
       global v_level
@@ -207,15 +217,16 @@ class basis_correction(lib.StreamObject):
       '''
       Check various fatal mistakes
       '''
+      ###unknown arguments
+      if(len(self.kwargs.keys())!=0):
+        print('>>> WARNING: DO NOT KNOW KEYWORD:')
+        for key in self.kwargs.keys():
+            print('  %-10s: %-10s'%(key,self.kwargs[key]))
+
       self.breakout=False
       ###obj
       if(not(hasattr(self.obj,'mo_coeff'))):
         print('>>%-37s  %20s'%('> DO NOT KNOW HOW TO mo_coeff',type(self.obj)))
-        self.breakout=True
-      if(not(isinstance(self.obj,scf.rohf.ROHF)
-          or isinstance(self.obj,scf.hf.RHF)
-          or isinstance(self.obj,scf.uhf.UHF))):
-        print('>>%-37s  %20s'%('> DO NOT RECOGNIZE obj',type(self.obj)))
         self.breakout=True
 
       ###dm
@@ -359,6 +370,9 @@ class basis_correction(lib.StreamObject):
         del tmp
       else:
         dmrest=False
+      #print('BM morest',morest)
+      #print('BM nopen ',nopen)
+      #print('BM dmrest',dmrest)
 
       ###export the dm
       export_dm(self)
@@ -512,7 +526,6 @@ class basis_correction(lib.StreamObject):
           self.compute_f_and_n()
           self.compute_mu_of_r()
           dev_check_f(self)
-        export_mu_of_r(self)
       elif(isinstance(self.mu,float)):
         printv0('  %-37s  %20.8f'%('> mu_of_r imposed',self.mu))
         self.mu_of_r = np.array([self.mu for grid_A in range(self.ngrid)])
@@ -520,7 +533,8 @@ class basis_correction(lib.StreamObject):
         printv0('  %-25s  %32s'%('> mu_of_r imported from',self.mu))
         import_mu_of_r(self)
 
-      ###average mu_of_r
+      ###export and average mu_of_r
+      export_mu_of_r(self)
       self.compute_average_mu_of_r()
 
   def compute_phi_square(self):
@@ -606,33 +620,37 @@ class basis_correction(lib.StreamObject):
       start=time.time()
       print('\n############### DEVELOPMENT #############\n')
 
+      ### IN AOS ###
       if(False):
-        ### IN AOS ###
         ###j_pq = \int_12 \phi_p(r1) 1/r12 \phi_q(r2)
         self.j=self.obj.mol.intor('int2c2e_sph') #,hermi=1)
-        ovlp_inv=np.linalg.inv(self.obj.get_ovlp())
+        ovlp_inv=np.linalg.inv(self.get_ovlp())
         self.c=np.einsum('ij,jk,kl->il',ovlp_inv.T,self.j,ovlp_inv)
 
         ###mu_of_r
-        self.mu_of_r=np.zeros(self.ngrid)
-        for p in range(self.nmo):
-          for q in range(self.nmo):
-            self.mu_of_r+=self.aos_of_r[:,p]*self.aos_of_r[:,q]\
-                         *self.c[p,q]*math.sqrt(math.pi)*0.5
+        self.mu_of_r=np.einsum("Ap,Aq,pq->A",self.aos_of_r,self.aos_of_r,self.c)*math.sqrt(math.pi)*0.5
+        if(False): #now using np, above /\
+          self.mu_of_r=np.zeros(self.ngrid)
+          for p in range(self.nmo):
+            for q in range(self.nmo):
+              self.mu_of_r+=self.aos_of_r[:,p]*self.aos_of_r[:,q]\
+                           *self.c[p,q]*math.sqrt(math.pi)*0.5
 
+      ### IN MOS ###
       else:
-        ### IN MOS ###
         ###j_pq = \int_12 \phi_p(r1) 1/r12 \phi_q(r2)
         self.j=self.obj.mol.intor('int2c2e_sph') #,hermi=1)
         self.j=np.einsum('ij,jk,kl->il',self.mo[0].T,self.j,self.mo[1])
         self.c=self.j
 
         ###mu_of_r
-        self.mu_of_r=np.zeros(self.ngrid)
-        for p in range(self.nmo):
-          for q in range(self.nmo):
-            self.mu_of_r+=self.mos_of_r[0][:,p]*self.mos_of_r[1][:,q]\
-                         *self.c[p,q]*math.sqrt(math.pi)*0.5
+        self.mu_of_r=np.einsum("Ap,Aq,pq->A",self.mos_of_r[0],self.mos_of_r[1],self.c)*math.sqrt(math.pi)*0.5
+        if(False): #now using np, above /\
+          self.mu_of_r=np.zeros(self.ngrid)
+          for p in range(self.nmo):
+            for q in range(self.nmo):
+              self.mu_of_r+=self.mos_of_r[0][:,p]*self.mos_of_r[1][:,q]\
+                           *self.c[p,q]*math.sqrt(math.pi)*0.5
 
       print('\n############ END OF DEVELOPMENT ##########\n')
       end=time.time()
@@ -958,20 +976,21 @@ def import_dm(self):
     file = open(self.dm,'r')
     f = file.read().split('\n')
     file.close()
-    tmp = np.zeros((self.nmo,self.nmo))
+    nmo_here=int(max(np.amax([[float(j) for j in i.split()] for i in f])[:-1]))
+    tmp = np.zeros((nmo_here,nmo_here))
     tmpa = None
     for line in f:
       data=line.split()
       if len(data)==0:
           continue
       if len(data)==3:
-        tmp[int(data[0]),int(data[1])]=float(data[2])
+        tmp[int(data[0])-1,int(data[1])-1]=float(data[2])
       elif len(data)==4:
         current=int(data[0])
         if(current==1 and tmpa is None):
           tmpa=tmp
-          tmp = np.zeros((self.nmo,self.nmo))
-        tmp[int(data[1]),int(data[2])]=float(data[3])
+          tmp = np.zeros((nmo_here,nmo_here))
+        tmp[int(data[1])-1,int(data[2])-1]=float(data[3])
       else:
         print('>>>Expecting "i j dm(i,j)"')
         print('>>>       or "a/b i j dm[a/b](i,j)"')
@@ -1052,7 +1071,7 @@ def export_dm(self):
       for ab in range(2):
         for i in range(self.nmo):
           for j in range(self.nmo):
-            f.write('%1i %5i %5i %15.8f\n'%(ab,i,j,self.dm[ab][i,j]))
+            f.write('%1i %5i %5i %15.8E\n'%(ab,i+1,j+1,self.dm[ab][i,j]))
       f.close()
       printv0('    %-35s  %20s'%('export dm',filename))
       del f
@@ -1068,7 +1087,7 @@ def export_grid(self):
     else:
       f=open(filename,'w')
       for grid_A in range(self.ngrid):
-        f.write('%15.8f %15.8f %15.8f %15.8f\n'
+        f.write('%15.8e %15.8e %15.8e %15.8e\n'
               %(self.grid_coords[grid_A,0],
                 self.grid_coords[grid_A,1],
                 self.grid_coords[grid_A,2],
@@ -1089,7 +1108,7 @@ def export_mu_of_r(self):
     else:
       f=open(filename,'w')
       for grid_A in range(self.ngrid):
-        f.write('%15.8f %15.8f %15.8f %15.8f %25.8f\n'
+        f.write('%15.8e %15.8e %15.8e %15.8e %25.8e\n'
               %(self.grid_coords[grid_A,0],
                 self.grid_coords[grid_A,1],
                 self.grid_coords[grid_A,2],
@@ -1610,15 +1629,15 @@ def dev_check_mos_dm(self):
     a=np.einsum('mi,i,ni->mn',self.mo[1],occ[1],self.mo[1])
     log('norm(dm-dm) (beta) (onlySR)',np.linalg.norm(self.dm[1]-a))
 
-    if(hasattr(self.obj,'get_ovlp')):
-      a=np.einsum('ij,ij',self.dm[0],self.obj.get_ovlp()) - self.nelec_alpha
+    if(self.get_ovlp is not None):
+      a=np.einsum('ij,ij',self.dm[0],self.get_ovlp()) - self.nelec_alpha
       log('tr(DM.S)=nelec',a)
-      a=np.einsum('ij,ij',self.dm[1],self.obj.get_ovlp()) - self.nelec_beta
+      a=np.einsum('ij,ij',self.dm[1],self.get_ovlp()) - self.nelec_beta
       log('tr(DM.S)=nelec',a)
 
-      a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo[0].T,self.obj.get_ovlp(),self.mo[0])
+      a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo[0].T,self.get_ovlp(),self.mo[0])
       log('norm(C.T.S.C-1mat)',np.linalg.norm(a))
-      a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo[1].T,self.obj.get_ovlp(),self.mo[1])
+      a=np.diag([1]*self.nmo)-np.einsum('ij,jk,kl->il',self.mo[1].T,self.get_ovlp(),self.mo[1])
       log('norm(C.T.S.C-1mat)',np.linalg.norm(a))
     del a
 
@@ -1631,8 +1650,8 @@ def dev_check_orthos(self):
   #TODO <MO|MO> are not always right..!?!
   #TODO Everything else works though, so...
   if(v_level>1):
-    if(hasattr(self.obj,'get_ovlp')):
-      ref=self.obj.get_ovlp()
+    if(self.get_ovlp is not None):
+      ref=self.get_ovlp()
       a=np.zeros((self.nmo,self.nmo))
       for i in range(self.nmo):
        for j in range(self.nmo):
